@@ -1,3 +1,4 @@
+##This is based on the article [here](https://www.xda-developers.com/replaced-claude-code-tiny-specialists-boring-setup-worked-better/) 
 # Local Multi-Model AI Specialist Team
 
 An autonomous, multi-agent LLM orchestration system powered by [Ollama](https://ollama.com/) and [n8n](https://n8n.io/). 
