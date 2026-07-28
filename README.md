@@ -102,8 +102,6 @@ This script will automatically:
 
 ### `docker-compose.yml`
 ```yaml
-version: '3.8'
-
 services:
   n8n:
     image: docker.n8n.io/n8nio/n8n
