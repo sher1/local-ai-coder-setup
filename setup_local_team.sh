@@ -14,6 +14,7 @@ else
 fi
 
 # 2. Configure Ollama Environment for CPU/RAM optimization
+export OLLAMA_FLASH_ATTENTION=1 # added to reduce VRAM consumption during long-context operations
 export OLLAMA_MAX_LOADED_MODELS=2
 export OLLAMA_NUM_PARALLEL=1
 
