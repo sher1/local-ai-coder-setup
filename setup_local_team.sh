@@ -21,8 +21,11 @@ echo "[+] Pulling specialist models into local library..."
 echo "--> Router (Qwen 3.5 2B)..."
 ollama pull qwen3.5:2b
 
-echo "--> Coding Specialist (Qwen 3.5 9B)..."
+echo "--> Coding Specialist - General (Qwen 3.5 9B)..."
 ollama pull qwen3.5:9b
+
+echo "--> Coding Specialist - Go & PHP (DeepSeek Coder V2 16B)..."
+ollama pull deepseek-coder-v2:16b
 
 echo "--> General Worker (Qwen 3.5 9B)..."
 ollama pull qwen3.5:9b
