@@ -9,7 +9,7 @@ Instead of relying on a single expensive frontier model to handle every task, th
 
 ## 🏗️ How It Works (System Architecture)
 
-When you submit a prompt or request, it flows through a multi-stage pipeline designed for efficiency, speed, and strict verification:
+When you submit a prompt or request, it flows through a multi-stage pipeline designed for efficiency, speed, and strict verification. If initial worker fixes fail verification twice, the workflow escalates to a dedicated **Deep Debugger** node utilizing chain-of-thought reasoning before re-attempting code generation:
 
 ```
                   ┌────────────────┐
@@ -38,19 +38,26 @@ When you submit a prompt or request, it flows through a multi-stage pipeline des
             ┌─────────────┴─────────────┐
             │                           │
     [ Failed Check ]             [ Passed Check ]
-  (Max 2 retries back                 │
-   to specialized worker)             ▼
-                               [ Final Output ]
+    (Attempt #1 Fail)                   │
+            │                           ▼
+            ▼                    [ Final Output ]
+  ┌──────────────────┐
+  │  Deep Debugger   │  <-- Chain-of-Thought reasoning on stack traces/logs
+  │ (DeepSeek R1 7B) │
+  └─────────┬────────┘
+            │
+            └──────► Retries Coding Node with reasoning feedback
 ```
 
 ### Specialist Breakdown
 
 | Role | Model | Temperature | VRAM / System RAM | Responsibility |
 | :--- | :--- | :--- | :--- | :--- |
-| **Router** | `qwen3.5:2b` | `0.0` | ~1.5 GB | Classifies tasks, extracts target files, and returns a strict JSON execution plan. Does **not** solve the problem itself. |
+| **Router** | `qwen3.5:2b` | `0.0` | ~1.5 GB | Classifies tasks, extracts target files, and returns a strict JSON execution plan. |
 | **Coder Specialist** | `qwen3.5:9b` | `0.1` | ~6.0 GB Total | Inspects codebases, modifies local files, and runs terminal tests in a sandboxed directory. |
 | **Worker Specialist** | `qwen3.5:9b` | `0.2` | ~6.0 GB Total | Handles web research, data processing (Python/SQL generation), and automated tasks via approved n8n nodes. |
-| **Verifier** | `qwen3.5:4b` | `0.0` | ~3.0 GB | Compares the worker’s output against the original success criteria. If tests fail, it loops back to the worker with raw error logs (up to 2 retries). |
+| **Verifier** | `qwen3.5:4b` | `0.0` | ~3.0 GB | Compares worker output against success criteria. If tests fail, routes output to Debugger or Coder with error logs. |
+| **Deep Debugger** | `deepseek-r1:7b` | `0.6` | ~5.0 GB Total | Analyzes execution failures and stack traces using explicit chain-of-thought reasoning before feeding root-cause analysis back to the Coder. |
 
 ---
 
@@ -59,7 +66,7 @@ When you submit a prompt or request, it flows through a multi-stage pipeline des
 * **RAM:** 32 GB (System RAM is heavily utilized for model layer splitting).
 * **GPU VRAM:** 4 GB+ (AMD RX 6500 XT or equivalent).
 * **CPU:** 6 cores / 12 threads (e.g., AMD Ryzen 5 5600X).
-* **Disk Space:** ~25 GB free space for Qwen 3.5 model weights.
+* **Disk Space:** ~30 GB free space for local model weights.
 
 ---
 
@@ -93,7 +100,7 @@ Ensure you have the following installed on your system:
 This script will automatically:
 * Install Ollama (if missing).
 * Configure environment variables for CPU/RAM optimization (`OLLAMA_MAX_LOADED_MODELS=2`).
-* Pull all required Qwen 3.5 model weights into your local library.
+* Pull all 5 required specialist model weights into your local library.
 * Launch the **n8n** visual workflow manager inside a Docker container via Docker Compose.
 
 ---
@@ -151,6 +158,9 @@ ollama pull qwen3.5:9b
 
 echo "--> Verifier (Qwen 3.5 4B)..."
 ollama pull qwen3.5:4b
+
+echo "--> Deep Debugger (DeepSeek R1 7B)..."
+ollama pull deepseek-r1:7b
 
 # 3. Check for Docker & Docker Compose
 if command -v docker &> /dev/null; then
@@ -213,17 +223,12 @@ Return raw JSON only:
 }
 ```
 
-### 3. Example Workflows
-
-* **Fixing Code:** Send a request like *"Fix the failing unit tests in `src/utils.py`"*. 
-  * The Router flags `target_worker: "coder"` and sets `success_criteria: "pytest passes"`.
-  * The Coding Specialist (`qwen3.5:9b`) edits the file and executes tests via local command nodes.
-  * The Verifier checks test logs. If successful, execution stops; if failed, it feeds the output back into the coder.
-
-* **Research Task:** Send a request like *"Find the latest security advisories for Drupal 10"*.
-  * The Router sends the job to `researcher`.
-  * The worker uses n8n HTTP nodes to pull web content without file system access.
-  * The Verifier confirms that every claim includes an attached web URL source.
+#### Deep Debugger Node System Prompt (`deepseek-r1:7b`)
+```text
+Analyze the failing code and execution error logs provided. 
+Reason step-by-step to identify the root cause of the bug in Python, Node, Go, or PHP.
+Provide a clear analysis of why it failed and actionable instructions for the coding model to apply the fix.
+```
 
 ---
 
