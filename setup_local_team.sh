@@ -8,7 +8,7 @@ echo "================================================="
 # 1. Check for Ollama
 if ! command -v ollama &> /dev/null; then
     echo "[+] Installing Ollama..."
-    curl -fsSL https://ollama.com/install.sh | sh
+    curl -fsSL [https://ollama.com/install.sh](https://ollama.com/install.sh) | sh
 else
     echo "[✓] Ollama is installed."
 fi
@@ -18,17 +18,17 @@ export OLLAMA_MAX_LOADED_MODELS=2
 export OLLAMA_NUM_PARALLEL=1
 
 echo "[+] Pulling specialist models into local library..."
-echo "--> Router (Qwen 2.5 1.5B)..."
-ollama pull qwen2.5:1.5b
+echo "--> Router (Qwen 3.5 2B)..."
+ollama pull qwen3.5:2b
 
-echo "--> Coding Specialist (Qwen 2.5 Coder 7B Q4)..."
-ollama pull qwen2.5-coder:7b-instruct-q4_K_M
+echo "--> Coding Specialist (Qwen 3.5 9B)..."
+ollama pull qwen3.5:9b
 
-echo "--> General Worker (Qwen 2.5 7B Q4)..."
-ollama pull qwen2.5:7b-instruct-q4_K_M
+echo "--> General Worker (Qwen 3.5 9B)..."
+ollama pull qwen3.5:9b
 
-echo "--> Verifier (Qwen 2.5 3B)..."
-ollama pull qwen2.5:3b
+echo "--> Verifier (Qwen 3.5 4B)..."
+ollama pull qwen3.5:4b
 
 # 3. Check for Docker & Docker Compose
 if command -v docker &> /dev/null; then
