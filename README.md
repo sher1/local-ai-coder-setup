@@ -9,55 +9,56 @@ Instead of relying on a single expensive frontier model to handle every task, th
 
 ## 🏗️ How It Works (System Architecture)
 
-When you submit a prompt or request, it flows through a multi-stage pipeline designed for efficiency, speed, and strict verification. If initial worker fixes fail verification twice, the workflow escalates to a dedicated **Deep Debugger** node utilizing chain-of-thought reasoning before re-attempting code generation:
+When you submit a prompt or request, it flows through a multi-stage pipeline designed for efficiency, speed, and strict verification. Tasks are routed based on language and task type. If initial fixes fail verification, execution escalates to a dedicated **Deep Debugger** node utilizing chain-of-thought reasoning before re-attempting code generation:
 
 ```
-                  ┌────────────────┐
-                  │  User Request  │
-                  └───────┬────────┘
-                          │
-                          ▼
-            ┌──────────────────────────┐
-            │   Router (Qwen 3.5 2B)   │  <-- Analyzes intent, outputs JSON plan
-            └─────────────┬────────────┘
-                          │
-         ┌────────────────┼────────────────┐
-         ▼                ▼                ▼
-┌────────────────┐ ┌─────────────┐ ┌──────────────┐
-│  Coding Node   │ │ Research    │ │ General      │  <-- Executes task with 
-│ (Qwen 3.5 9B)  │ │(Qwen 3.5 9B)│ │ (Qwen 3.5 9B)│      restricted tools
-└───────┬────────┘ └──────┬──────┘ └──────┬───────┘
-        │                 │               │
-        └─────────────────┼───────────────┘
-                          │
-                          ▼
-            ┌──────────────────────────┐
-            │  Verifier (Qwen 3.5 4B)  │  <-- Evaluates output vs success criteria
-            └─────────────┬────────────┘
-                          │
-            ┌─────────────┴─────────────┐
-            │                           │
-    [ Failed Check ]             [ Passed Check ]
-    (Attempt #1 Fail)                   │
-            │                           ▼
-            ▼                    [ Final Output ]
-  ┌──────────────────┐
-  │  Deep Debugger   │  <-- Chain-of-Thought reasoning on stack traces/logs
-  │ (DeepSeek R1 7B) │
-  └─────────┬────────┘
-            │
-            └──────► Retries Coding Node with reasoning feedback
+                          ┌────────────────┐
+                          │  User Request  │
+                          └───────┬────────┘
+                                  │
+                                  ▼
+                    ┌──────────────────────────┐
+                    │   Router (Qwen 3.5 2B)   │  <-- Analyzes intent, outputs JSON plan
+                    └─────────────┬────────────┘
+                                  │
+      ┌───────────────────────────┼───────────────────────────┬───────────────────────────┐
+      ▼                           ▼                           ▼                           ▼
+┌───────────────┐           ┌───────────────┐           ┌───────────────┐           ┌───────────────┐
+│ Coder Node    │           │ Go / PHP Node │           │ Research Node │           │ General Node  │
+│(Qwen 3.5 9B)  │           │(DeepSeek 16B) │           │ (Qwen 3.5 9B) │           │ (Qwen 3.5 9B) │
+└───────┬───────┘           └───────┬───────┘           └───────┬───────┘           └───────┬───────┘
+        │                           │                           │                           │
+        └───────────────────────────┴───────────────┬───────────┴───────────────────────────┘
+                                                    │
+                                                    ▼
+                                      ┌──────────────────────────┐
+                                      │  Verifier (Qwen 3.5 4B)  │  <-- Evaluates output vs success criteria
+                                      └─────────────┬────────────┘
+                                                    │
+                                      ┌─────────────┴─────────────┐
+                                      │                           │
+                              [ Failed Check ]             [ Passed Check ]
+                              (Attempt #1 Fail)                   │
+                                      │                           ▼
+                                      ▼                    [ Final Output ]
+                            ┌──────────────────┐
+                            │  Deep Debugger   │  <-- Chain-of-Thought reasoning on stack traces/logs
+                            │ (DeepSeek R1 7B) │
+                            └─────────┬────────┘
+                                      │
+                                      └──────► Retries Coding Node with reasoning feedback
 ```
 
 ### Specialist Breakdown
 
 | Role | Model | Temperature | VRAM / System RAM | Responsibility |
 | :--- | :--- | :--- | :--- | :--- |
-| **Router** | `qwen3.5:2b` | `0.0` | ~1.5 GB | Classifies tasks, extracts target files, and returns a strict JSON execution plan. |
-| **Coder Specialist** | `qwen3.5:9b` | `0.1` | ~6.0 GB Total | Inspects codebases, modifies local files, and runs terminal tests in a sandboxed directory. |
-| **Worker Specialist** | `qwen3.5:9b` | `0.2` | ~6.0 GB Total | Handles web research, data processing (Python/SQL generation), and automated tasks via approved n8n nodes. |
+| **Router** | `qwen3.5:2b` | `0.0` | ~1.5 GB | Classifies tasks, target languages, and target files, returning a strict JSON execution plan. |
+| **Coder Specialist (General)** | `qwen3.5:9b` | `0.1` | ~6.0 GB Total | Inspects codebases, modifies local files, and handles Python, Node, JS, and general scripting. |
+| **Go & PHP Specialist** | `deepseek-coder-v2:16b` | `0.1` | ~9.0 GB Total | Dedicated MoE model for complex Go interfaces, channels, PHP PSR standards, and framework logic (Drupal/Laravel). |
+| **Worker Specialist** | `qwen3.5:9b` | `0.2` | ~6.0 GB Total | Handles web research, data processing, and automated tasks via approved n8n nodes. |
 | **Verifier** | `qwen3.5:4b` | `0.0` | ~3.0 GB | Compares worker output against success criteria. If tests fail, routes output to Debugger or Coder with error logs. |
-| **Deep Debugger** | `deepseek-r1:7b` | `0.6` | ~5.0 GB Total | Analyzes execution failures and stack traces using explicit chain-of-thought reasoning before feeding root-cause analysis back to the Coder. |
+| **Deep Debugger** | `deepseek-r1:7b` | `0.6` | ~5.0 GB Total | Analyzes execution failures and stack traces using explicit chain-of-thought reasoning before feeding analysis back to the coder. |
 
 ---
 
@@ -66,7 +67,7 @@ When you submit a prompt or request, it flows through a multi-stage pipeline des
 * **RAM:** 32 GB (System RAM is heavily utilized for model layer splitting).
 * **GPU VRAM:** 4 GB+ (AMD RX 6500 XT or equivalent).
 * **CPU:** 6 cores / 12 threads (e.g., AMD Ryzen 5 5600X).
-* **Disk Space:** ~30 GB free space for local model weights.
+* **Disk Space:** ~35 GB free space for local model weights.
 
 ---
 
@@ -100,7 +101,7 @@ Ensure you have the following installed on your system:
 This script will automatically:
 * Install Ollama (if missing).
 * Configure environment variables for CPU/RAM optimization (`OLLAMA_MAX_LOADED_MODELS=2`).
-* Pull all 5 required specialist model weights into your local library.
+* Pull all required specialist model weights into your local library.
 * Launch the **n8n** visual workflow manager inside a Docker container via Docker Compose.
 
 ---
@@ -150,8 +151,11 @@ echo "[+] Pulling specialist models into local library..."
 echo "--> Router (Qwen 3.5 2B)..."
 ollama pull qwen3.5:2b
 
-echo "--> Coding Specialist (Qwen 3.5 9B)..."
+echo "--> Coding Specialist - General (Qwen 3.5 9B)..."
 ollama pull qwen3.5:9b
+
+echo "--> Coding Specialist - Go & PHP (DeepSeek Coder V2 16B)..."
+ollama pull deepseek-coder-v2:16b
 
 echo "--> General Worker (Qwen 3.5 9B)..."
 ollama pull qwen3.5:9b
@@ -206,10 +210,12 @@ echo "================================================="
 You are a strict task classifier. Analyze the user request and output ONLY a JSON object:
 {
   "task_type": "coding" | "research" | "data",
-  "target_worker": "coder" | "researcher" | "general",
+  "language": "python" | "node" | "go" | "php" | "other",
+  "target_worker": "coder_general" | "coder_go_php" | "researcher" | "general",
   "files": [],
   "success_criteria": "string"
 }
+If language is "go" or "php", target_worker MUST be "coder_go_php".
 Do not solve the problem. Return raw JSON only.
 ```
 
