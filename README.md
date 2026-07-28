@@ -25,7 +25,7 @@ When you submit a prompt or request, it flows through a multi-stage pipeline des
          ▼                ▼                ▼
 ┌────────────────┐ ┌─────────────┐ ┌──────────────┐
 │  Coding Node   │ │ Research    │ │ General      │  <-- Executes task with 
-│ (Qwen Coder 7B)│ │ (Qwen 2.5 7B)│ │ (Qwen 2.5 7B)│      restricted tools
+│ (Qwen Coder 7B)│ │(Qwen 2.5 7B)│ │ (Qwen 2.5 7B)│      restricted tools
 └───────┬────────┘ └──────┬──────┘ └──────┬───────┘
         │                 │               │
         └─────────────────┼───────────────┘
