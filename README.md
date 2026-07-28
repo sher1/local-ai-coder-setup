@@ -18,21 +18,21 @@ When you submit a prompt or request, it flows through a multi-stage pipeline des
                           │
                           ▼
             ┌──────────────────────────┐
-            │   Router (Qwen 2.5 1.5B) │  <-- Analyzes intent, outputs JSON plan
+            │   Router (Qwen 3.5 2B)   │  <-- Analyzes intent, outputs JSON plan
             └─────────────┬────────────┘
                           │
          ┌────────────────┼────────────────┐
          ▼                ▼                ▼
 ┌────────────────┐ ┌─────────────┐ ┌──────────────┐
 │  Coding Node   │ │ Research    │ │ General      │  <-- Executes task with 
-│ (Qwen Coder 7B)│ │(Qwen 2.5 7B)│ │ (Qwen 2.5 7B)│      restricted tools
+│ (Qwen 3.5 9B)  │ │(Qwen 3.5 9B)│ │ (Qwen 3.5 9B)│      restricted tools
 └───────┬────────┘ └──────┬──────┘ └──────┬───────┘
         │                 │               │
         └─────────────────┼───────────────┘
                           │
                           ▼
             ┌──────────────────────────┐
-            │  Verifier (Qwen 2.5 3B)  │  <-- Evaluates output vs success criteria
+            │  Verifier (Qwen 3.5 4B)  │  <-- Evaluates output vs success criteria
             └─────────────┬────────────┘
                           │
             ┌─────────────┴─────────────┐
@@ -47,10 +47,10 @@ When you submit a prompt or request, it flows through a multi-stage pipeline des
 
 | Role | Model | Temperature | VRAM / System RAM | Responsibility |
 | :--- | :--- | :--- | :--- | :--- |
-| **Router** | `qwen2.5:1.5b` | `0.0` | ~2.0 GB | Classifies tasks, extracts target files, and returns a strict JSON execution plan. Does **not** solve the problem itself. |
-| **Coder Specialist** | `qwen2.5-coder:7b-instruct-q4_K_M` | `0.1` | ~4.7 GB | Inspects codebases, modifies local files, and runs terminal tests in a sandboxed directory. |
-| **Worker Specialist** | `qwen2.5:7b-instruct-q4_K_M` | `0.2` | ~4.7 GB | Handles web research, data processing (Python/SQL generation), and automated tasks via approved n8n nodes. |
-| **Verifier** | `qwen2.5:3b` | `0.0` | ~3.0 GB | Compares the worker’s output against the original success criteria. If tests fail, it loops back to the worker with raw error logs (up to 2 retries). |
+| **Router** | `qwen3.5:2b` | `0.0` | ~1.5 GB | Classifies tasks, extracts target files, and returns a strict JSON execution plan. Does **not** solve the problem itself. |
+| **Coder Specialist** | `qwen3.5:9b` | `0.1` | ~6.0 GB Total | Inspects codebases, modifies local files, and runs terminal tests in a sandboxed directory. |
+| **Worker Specialist** | `qwen3.5:9b` | `0.2` | ~6.0 GB Total | Handles web research, data processing (Python/SQL generation), and automated tasks via approved n8n nodes. |
+| **Verifier** | `qwen3.5:4b` | `0.0` | ~3.0 GB | Compares the worker’s output against the original success criteria. If tests fail, it loops back to the worker with raw error logs (up to 2 retries). |
 
 ---
 
@@ -59,7 +59,7 @@ When you submit a prompt or request, it flows through a multi-stage pipeline des
 * **RAM:** 32 GB (System RAM is heavily utilized for model layer splitting).
 * **GPU VRAM:** 4 GB+ (AMD RX 6500 XT or equivalent).
 * **CPU:** 6 cores / 12 threads (e.g., AMD Ryzen 5 5600X).
-* **Disk Space:** ~20 GB free space for GGUF model weights.
+* **Disk Space:** ~25 GB free space for Qwen 3.5 model weights.
 
 ---
 
@@ -93,7 +93,7 @@ Ensure you have the following installed on your system:
 This script will automatically:
 * Install Ollama (if missing).
 * Configure environment variables for CPU/RAM optimization (`OLLAMA_MAX_LOADED_MODELS=2`).
-* Pull all 4 required Qwen model weights into your local library.
+* Pull all required Qwen 3.5 model weights into your local library.
 * Launch the **n8n** visual workflow manager inside a Docker container via Docker Compose.
 
 ---
@@ -140,17 +140,17 @@ export OLLAMA_MAX_LOADED_MODELS=2
 export OLLAMA_NUM_PARALLEL=1
 
 echo "[+] Pulling specialist models into local library..."
-echo "--> Router (Qwen 2.5 1.5B)..."
-ollama pull qwen2.5:1.5b
+echo "--> Router (Qwen 3.5 2B)..."
+ollama pull qwen3.5:2b
 
-echo "--> Coding Specialist (Qwen 2.5 Coder 7B Q4)..."
-ollama pull qwen2.5-coder:7b-instruct-q4_K_M
+echo "--> Coding Specialist (Qwen 3.5 9B)..."
+ollama pull qwen3.5:9b
 
-echo "--> General Worker (Qwen 2.5 7B Q4)..."
-ollama pull qwen2.5:7b-instruct-q4_K_M
+echo "--> General Worker (Qwen 3.5 9B)..."
+ollama pull qwen3.5:9b
 
-echo "--> Verifier (Qwen 2.5 3B)..."
-ollama pull qwen2.5:3b
+echo "--> Verifier (Qwen 3.5 4B)..."
+ollama pull qwen3.5:4b
 
 # 3. Check for Docker & Docker Compose
 if command -v docker &> /dev/null; then
@@ -191,7 +191,7 @@ echo "================================================="
 3. Add **HTTP Request Nodes** or official **Ollama Nodes** configured to connect to `http://host.docker.internal:11434` (or `http://localhost:11434`).
 4. Configure node prompts according to their roles:
 
-#### Router Node System Prompt (`qwen2.5:1.5b`)
+#### Router Node System Prompt (`qwen3.5:2b`)
 ```text
 You are a strict task classifier. Analyze the user request and output ONLY a JSON object:
 {
@@ -203,7 +203,7 @@ You are a strict task classifier. Analyze the user request and output ONLY a JSO
 Do not solve the problem. Return raw JSON only.
 ```
 
-#### Verifier Node System Prompt (`qwen2.5:3b`)
+#### Verifier Node System Prompt (`qwen3.5:4b`)
 ```text
 Evaluate whether the output provided by the worker meets the target success_criteria.
 Return raw JSON only:
@@ -217,7 +217,7 @@ Return raw JSON only:
 
 * **Fixing Code:** Send a request like *"Fix the failing unit tests in `src/utils.py`"*. 
   * The Router flags `target_worker: "coder"` and sets `success_criteria: "pytest passes"`.
-  * The Coding Specialist (`qwen2.5-coder:7b`) edits the file and executes tests via local command nodes.
+  * The Coding Specialist (`qwen3.5:9b`) edits the file and executes tests via local command nodes.
   * The Verifier checks test logs. If successful, execution stops; if failed, it feeds the output back into the coder.
 
 * **Research Task:** Send a request like *"Find the latest security advisories for Drupal 10"*.
