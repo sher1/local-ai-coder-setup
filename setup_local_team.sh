@@ -8,7 +8,7 @@ echo "================================================="
 # 1. Check for Ollama
 if ! command -v ollama &> /dev/null; then
     echo "[+] Installing Ollama..."
-    curl -fsSL [https://ollama.com/install.sh](https://ollama.com/install.sh) | sh
+    curl -fsSL https://ollama.com/install.sh | sh
 else
     echo "[✓] Ollama is installed."
 fi
@@ -29,6 +29,9 @@ ollama pull qwen3.5:9b
 
 echo "--> Verifier (Qwen 3.5 4B)..."
 ollama pull qwen3.5:4b
+
+echo "--> Deep Debugger (DeepSeek R1 7B)..."
+ollama pull deepseek-r1:7b
 
 # 3. Check for Docker & Docker Compose
 if command -v docker &> /dev/null; then
