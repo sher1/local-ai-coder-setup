@@ -116,16 +116,20 @@ services:
       - "5678:5678"
     environment:
       - N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS=true
+      - N8N_LOG_OUTPUT=console,file
+      - N8N_LOG_FILE_LOCATION=/logs/n8n.log
+      - N8N_LOG_FILE_SIZE_MAX=16
+      - N8N_LOG_FILE_COUNT_MAX=10
     volumes:
       - n8n_data:/home/node/.n8n
-      - ./.n8n:/files:ro
+      - ./.n8n:/logs
       - ./workflows/workflow.json:/tmp/workflow.json:ro
 
 volumes:
   n8n_data:
 ```
 
-The workflow definition is tracked at `workflows/workflow.json` and mounted read-only at `/tmp/workflow.json` inside the container. The start script imports it once; local `.n8n` data is ignored by Git.
+The workflow definition is tracked at `workflows/workflow.json` and mounted read-only at `/tmp/workflow.json` inside the container. The start script imports it once. n8n writes logs to `.n8n/n8n.log` on the host, with up to 10 rotated 16 MB files; local `.n8n` data is ignored by Git.
 
 ### `start_local_team.sh`
 

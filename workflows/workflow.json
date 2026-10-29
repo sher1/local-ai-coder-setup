@@ -37,7 +37,7 @@
         "url": "http://host.docker.internal:11434/api/chat",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({model:'qwen3.5:2b',stream:false,format:'json',options:{temperature:0},messages:[{role:'system',content:'You are a strict task classifier. Return only JSON with task_type (coding, research, or data), language (python, node, go, php, or other), target_worker (coder, researcher, or general), files (array), and success_criteria (string). Route coding tasks in any language, including Go and PHP, to coder. Do not solve the task.'},{role:'user',content:$json.task}]}) }}",
+        "jsonBody": "={{ JSON.stringify({model:'qwen3.5:2b',stream:false,options:{temperature:0},messages:[{role:'system',content:'You are a strict task classifier. Return only JSON with task_type (coding, research, or data), language (python, node, go, php, or other), target_worker (coder, researcher, or general), files (array), and success_criteria (string). Route coding tasks in any language, including Go and PHP, to coder. Do not solve the task.'},{role:'user',content:$json.task}]}) }}",
         "options": {}
       },
       "id": "6b5ad98f-1877-405a-b9f8-adb7e8ca0001",
@@ -48,7 +48,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const raw = String($json.message?.content ?? '').trim();\nconst cleaned = raw.replace(/^```(?:json)?\\s*/i, '').replace(/```$/, '').trim();\nlet plan;\ntry { plan = JSON.parse(cleaned); } catch (error) { throw new Error('Router did not return valid JSON: ' + raw); }\nif (!['coder', 'researcher', 'general'].includes(plan.target_worker)) throw new Error('Router returned an unsupported target_worker.');\nreturn [{ json: { task: $('Task Input').first().json.task, plan, retryCount: 0, retryFeedback: '' } }];"
+        "jsCode": "const raw = String($json.message?.content ?? '').trim();\nconst cleaned = raw.replace(/^```(?:json)?\\s*/i, '').replace(/```$/, '').trim();\nlet plan;\ntry { plan = JSON.parse(cleaned); } catch (error) { throw new Error('Router did not return valid JSON: ' + raw); }\nif (!['coder', 'researcher', 'general'].includes(plan.target_worker)) throw new Error('Router returned an unsupported target_worker.');\nconst tokenUsage = [{ model: 'qwen3.5:2b', promptTokens: Number($json.prompt_eval_count || 0), generatedTokens: Number($json.eval_count || 0) }];\nreturn [{ json: { task: $('Task Input').first().json.task, plan, retryCount: 0, retryFeedback: '', tokenUsage } }];"
       },
       "id": "4c1eb0df-b732-4f34-9f19-6f29a7e3c0be",
       "name": "Parse Router Plan",
@@ -103,7 +103,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const state = $('Prepare Coder Input').item.json;\nreturn [{ json: { ...state, worker: 'coder', workerOutput: String($json.message?.content ?? '') } }];"
+        "jsCode": "const state = $('Prepare Coder Input').item.json;\nconst tokenUsage = [...(state.tokenUsage || []), { model: 'qwen2.5-coder:7b-instruct', promptTokens: Number($json.prompt_eval_count || 0), generatedTokens: Number($json.eval_count || 0) }];\nreturn [{ json: { ...state, tokenUsage, worker: 'coder', workerOutput: String($json.message?.content ?? '') } }];"
       },
       "id": "8330847f-4ea1-4abc-9b30-9a0e624a2b6b",
       "name": "Pack Coder Result",
@@ -136,7 +136,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const state = $('Prepare General Input').item.json;\nreturn [{ json: { ...state, worker: state.plan.target_worker, workerOutput: String($json.message?.content ?? '') } }];"
+        "jsCode": "const state = $('Prepare General Input').item.json;\nconst tokenUsage = [...(state.tokenUsage || []), { model: 'qwen3.5:4b', promptTokens: Number($json.prompt_eval_count || 0), generatedTokens: Number($json.eval_count || 0) }];\nreturn [{ json: { ...state, tokenUsage, worker: state.plan.target_worker, workerOutput: String($json.message?.content ?? '') } }];"
       },
       "id": "21710ebc-5be7-41ce-91da-25fa29db1137",
       "name": "Pack General Result",
@@ -158,7 +158,7 @@
         "url": "http://host.docker.internal:11434/api/chat",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({model:'qwen3.5:4b',stream:false,format:'json',options:{temperature:0},messages:[{role:'system',content:'Evaluate whether the worker output meets the success criteria. Return JSON with a boolean passed field and a string feedback field. Be strict and do not claim tests were run unless evidence is included.'},{role:'user',content:'Task: '+$json.task+'\\nSuccess criteria: '+($json.plan.success_criteria||'Not specified')+'\\nWorker: '+$json.worker+'\\nWorker output: '+$json.workerOutput}]}) }}",
+        "jsonBody": "={{ JSON.stringify({model:'qwen3.5:4b',stream:false,options:{temperature:0},messages:[{role:'system',content:'Evaluate whether the worker output meets the success criteria. Return JSON with a boolean passed field and a string feedback field. Be strict and do not claim tests were run unless evidence is included.'},{role:'user',content:'Task: '+$json.task+'\\nSuccess criteria: '+($json.plan.success_criteria||'Not specified')+'\\nWorker: '+$json.worker+'\\nWorker output: '+$json.workerOutput}]}) }}",
         "options": {}
       },
       "id": "0da8da30-1a90-4b5f-a499-b1026a74a129",
@@ -169,7 +169,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const raw = String($json.message?.content ?? '').trim();\nconst cleaned = raw.replace(/^```(?:json)?\\s*/i, '').replace(/```$/, '').trim();\nlet review;\ntry { review = JSON.parse(cleaned); } catch (error) { throw new Error('Verifier did not return valid JSON: ' + raw); }\nif (typeof review.passed !== 'boolean') throw new Error('Verifier response must contain a boolean passed field.');\nconst state = $('Prepare Verification Input').item.json;\nreturn [{ json: { ...state, passed: review.passed, feedback: String(review.feedback ?? '') } }];"
+        "jsCode": "const raw = String($json.message?.content ?? '').trim();\nconst cleaned = raw.replace(/^```(?:json)?\\s*/i, '').replace(/```$/, '').trim();\nlet review;\ntry { review = JSON.parse(cleaned); } catch (error) { throw new Error('Verifier did not return valid JSON: ' + raw); }\nif (typeof review.passed !== 'boolean') throw new Error('Verifier response must contain a boolean passed field.');\nconst state = $('Prepare Verification Input').item.json;\nconst tokenUsage = [...(state.tokenUsage || []), { model: 'qwen3.5:4b', promptTokens: Number($json.prompt_eval_count || 0), generatedTokens: Number($json.eval_count || 0) }];\nreturn [{ json: { ...state, tokenUsage, passed: review.passed, feedback: String(review.feedback ?? '') } }];"
       },
       "id": "67b2e3ec-c918-4bd2-9a65-2a43f83e45ef",
       "name": "Parse Verification",
@@ -246,7 +246,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const state = $('Prepare Debugger Input').item.json;\nreturn [{ json: { ...state, debuggerAnalysis: String($json.message?.content ?? '') } }];"
+        "jsCode": "const state = $('Prepare Debugger Input').item.json;\nconst tokenUsage = [...(state.tokenUsage || []), { model: 'deepseek-r1:7b', promptTokens: Number($json.prompt_eval_count || 0), generatedTokens: Number($json.eval_count || 0) }];\nreturn [{ json: { ...state, tokenUsage, debuggerAnalysis: String($json.message?.content ?? '') } }];"
       },
       "id": "7c8ad2a3-61c2-4543-8d28-927058de36f7",
       "name": "Pack Debugger Result",
@@ -310,7 +310,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const d = $input.first().json;\nreturn [{ json: { task: d.task, worker: d.worker || d.plan?.target_worker || 'unknown', passed: d.passed === true, result: d.workerOutput || '', feedback: d.feedback || (d.retryCount > 2 ? 'Maximum of two retries reached.' : ''), debuggerAnalysis: d.debuggerAnalysis || '', retriesUsed: Math.min(Number(d.retryCount || 0), 2) } }];"
+        "jsCode": "const d = $input.first().json;\nconst usageByModel = {};\nfor (const call of d.tokenUsage || []) {\n  const model = call.model || 'unknown';\n  if (!usageByModel[model]) usageByModel[model] = { promptTokens: 0, generatedTokens: 0, totalTokens: 0, calls: 0 };\n  const promptTokens = Number(call.promptTokens || 0);\n  const generatedTokens = Number(call.generatedTokens || 0);\n  usageByModel[model].promptTokens += promptTokens;\n  usageByModel[model].generatedTokens += generatedTokens;\n  usageByModel[model].totalTokens += promptTokens + generatedTokens;\n  usageByModel[model].calls += 1;\n}\nconst tokenTotals = Object.values(usageByModel).reduce((totals, model) => ({ promptTokens: totals.promptTokens + model.promptTokens, generatedTokens: totals.generatedTokens + model.generatedTokens, totalTokens: totals.totalTokens + model.totalTokens, modelCalls: totals.modelCalls + model.calls }), { promptTokens: 0, generatedTokens: 0, totalTokens: 0, modelCalls: 0 });\nreturn [{ json: { task: d.task, worker: d.worker || d.plan?.target_worker || 'unknown', passed: d.passed === true, result: d.workerOutput || '', feedback: d.feedback || (d.retryCount > 2 ? 'Maximum of two retries reached.' : ''), debuggerAnalysis: d.debuggerAnalysis || '', retriesUsed: Math.min(Number(d.retryCount || 0), 2), tokenUsageByModel: usageByModel, tokenTotals } }];"
       },
       "id": "bff6a75b-dcbc-4964-9fb0-65cb2461cab7",
       "name": "Final Result",
