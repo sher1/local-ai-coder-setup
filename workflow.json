@@ -1,0 +1,33 @@
+{
+  "name": "Multi-Model Specialist Pipeline",
+  "active": true,
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "task-trigger"
+      },
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "model": "qwen2.5:1.5b",
+        "options": { "temperature": 0.0 }
+      },
+      "name": "Router Node",
+      "type": "n8n-nodes-base.ollama",
+      "typeVersion": 1,
+      "position": [450, 300]
+    }
+  ],
+  "connections": {
+    "Webhook Trigger": {
+      "main": [
+        [{ "node": "Router Node", "type": "main", "index": 0 }]
+      ]
+    }
+  }
+}
