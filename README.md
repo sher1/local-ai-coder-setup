@@ -88,14 +88,11 @@ Ensure you have the following installed on your system:
 
 2. **Save the project files:**
    * Create `docker-compose.yml` (see below).
-   * Create `setup_local_team.sh` and make it executable:
-     ```bash
-     chmod +x setup_local_team.sh
-     ```
+   * Use the included `start_local_team.sh` script.
 
 3. **Run the setup script:**
    ```bash
-   ./setup_local_team.sh
+   ./start_local_team.sh
    ```
 
 This script will automatically:
@@ -128,66 +125,11 @@ volumes:
   n8n_data:
 ```
 
-The workflow definition is tracked at `workflows/workflow.json` and mounted read-only at `/tmp/workflow.json` inside the container. The setup scripts import it once; local `.n8n` data is ignored by Git.
+The workflow definition is tracked at `workflows/workflow.json` and mounted read-only at `/tmp/workflow.json` inside the container. The start script imports it once; local `.n8n` data is ignored by Git.
 
-### `setup_local_team.sh`
-```bash
-#!/usr/bin/env bash
-set -euo pipefail
+### `start_local_team.sh`
 
-echo "================================================="
-echo "   Setting up Local Multi-Model AI Specialist Team"
-echo "================================================="
-
-# 1. Check for Ollama
-if ! command -v ollama &> /dev/null; then
-    echo "[+] Installing Ollama..."
-    curl -fsSL [https://ollama.com/install.sh](https://ollama.com/install.sh) | sh
-else
-    echo "[✓] Ollama is installed."
-fi
-
-# 2. Configure Ollama Environment for CPU/RAM optimization
-export OLLAMA_FLASH_ATTENTION=1
-export OLLAMA_MAX_LOADED_MODELS=1
-export OLLAMA_NUM_PARALLEL=1
-
-echo "[+] Pulling specialist models into local library..."
-echo "--> Router (Qwen 3.5 2B)..."
-ollama pull qwen3.5:2b
-
-echo " --> Specialized Coder Model (Qwen 2.5 Coder 7B)... "
-ollama pull qwen2.5-coder:7b-instruct
-
-echo "--> Verifier (Qwen 3.5 4B)..."
-ollama pull qwen3.5:4b
-
-echo " --> Deep Debugger (DeepSeek R1 7B)... "
-ollama pull deepseek-r1:7b
-
-# 3. Check for Docker & Docker Compose
-if command -v docker &> /dev/null; then
-    echo "[+] Launching n8n via Docker Compose..."
-    if docker compose version &> /dev/null; then
-        docker compose up -d
-    elif command -v docker-compose &> /dev/null; then
-        docker-compose up -d
-    else
-        echo "[!] Docker Compose not found. Please install docker-compose or the docker-compose-plugin."
-        exit 1
-    fi
-    echo "[✓] n8n container started successfully."
-else
-    echo "[!] Docker not detected. Please install Docker and Docker Compose."
-    exit 1
-fi
-
-echo "================================================="
-echo " Setup Complete!"
-echo " Ollama API running at: http://localhost:11434"
-echo " Access n8n UI at:      http://localhost:5678"
-echo "================================================="
-```
+The unified script supports macOS and Linux. It installs Ollama if needed, checks or starts its server, pulls the configured models, starts n8n, and imports the workflow on first setup.
 
 ---
 

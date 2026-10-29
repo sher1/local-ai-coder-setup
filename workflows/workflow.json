@@ -1,4 +1,5 @@
 {
+  "id": "8f6dd7a1-9724-4ea5-8a7c-733f6b5d6c20",
   "name": "Local Multi-Model Specialist Pipeline",
   "active": false,
   "nodes": [
@@ -157,7 +158,7 @@
         "url": "http://host.docker.internal:11434/api/chat",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({model:'qwen3.5:4b',stream:false,format:'json',options:{temperature:0},messages:[{role:'system',content:'Evaluate whether the worker output meets the success criteria. Return only JSON: {\\"passed\\": boolean, \\"feedback\\": string}. Be strict and do not claim tests were run unless evidence is included.'},{role:'user',content:'Task: '+$json.task+'\\nSuccess criteria: '+($json.plan.success_criteria||'Not specified')+'\\nWorker: '+$json.worker+'\\nWorker output: '+$json.workerOutput}]}) }}",
+        "jsonBody": "={{ JSON.stringify({model:'qwen3.5:4b',stream:false,format:'json',options:{temperature:0},messages:[{role:'system',content:'Evaluate whether the worker output meets the success criteria. Return JSON with a boolean passed field and a string feedback field. Be strict and do not claim tests were run unless evidence is included.'},{role:'user',content:'Task: '+$json.task+'\\nSuccess criteria: '+($json.plan.success_criteria||'Not specified')+'\\nWorker: '+$json.worker+'\\nWorker output: '+$json.workerOutput}]}) }}",
         "options": {}
       },
       "id": "0da8da30-1a90-4b5f-a499-b1026a74a129",
