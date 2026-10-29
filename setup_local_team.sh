@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+PROJECT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+cd "$PROJECT_DIR"
+
 echo "================================================="
 echo "   Setting up Local Multi-Model AI Specialist Team"
 echo "================================================="
@@ -72,7 +75,7 @@ docker exec -u node n8n_specialists sh -c '
     if [ -f "$marker" ]; then
         echo "[i] Workflow was already imported; skipping."
     else
-        n8n import:workflow --input=/files/workflow.json
+        n8n import:workflow --input=/tmp/workflow.json
         touch "$marker"
     fi
 '

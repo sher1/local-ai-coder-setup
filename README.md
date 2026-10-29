@@ -122,10 +122,13 @@ services:
     volumes:
       - n8n_data:/home/node/.n8n
       - ./.n8n:/files:ro
+      - ./workflows/workflow.json:/tmp/workflow.json:ro
 
 volumes:
   n8n_data:
 ```
+
+The workflow definition is tracked at `workflows/workflow.json` and mounted read-only at `/tmp/workflow.json` inside the container. The setup scripts import it once; local `.n8n` data is ignored by Git.
 
 ### `setup_local_team.sh`
 ```bash

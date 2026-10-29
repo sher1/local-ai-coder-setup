@@ -10,6 +10,7 @@ services:
     volumes:
       - n8n_data:/home/node/.n8n
       - ./.n8n:/files:ro
+      - ./workflows/workflow.json:/tmp/workflow.json:ro
 
 volumes:
   n8n_data:
