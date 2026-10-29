@@ -21,6 +21,30 @@ export OLLAMA_FLASH_ATTENTION=1 # added to reduce VRAM consumption during long-c
 export OLLAMA_MAX_LOADED_MODELS=1
 export OLLAMA_NUM_PARALLEL=1
 
+echo "[+] Checking whether the Ollama server is running..."
+if ollama list >/dev/null 2>&1; then
+    echo "[✓] Ollama server is already running."
+else
+    ollama_log_path="${TMPDIR:-/tmp}/ollama-local-team.log"
+    echo "[+] Starting Ollama server..."
+    nohup ollama serve >"$ollama_log_path" 2>&1 &
+
+    ollama_ready=false
+    for ((attempt = 1; attempt <= 30; attempt++)); do
+        if ollama list >/dev/null 2>&1; then
+            ollama_ready=true
+            break
+        fi
+        sleep 2
+    done
+
+    if [[ "$ollama_ready" != true ]]; then
+        echo "[!] Ollama did not become ready within 60 seconds. Check: $ollama_log_path"
+        exit 1
+    fi
+    echo "[✓] Ollama server started successfully."
+fi
+
 echo "[+] Pulling specialist models into local library..."
 echo "--> Router (Qwen 3.5 2B)..."
 ollama pull qwen3.5:2b
