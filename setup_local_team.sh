@@ -15,20 +15,22 @@ fi
 
 # 2. Configure Ollama Environment for CPU/RAM optimization
 export OLLAMA_FLASH_ATTENTION=1 # added to reduce VRAM consumption during long-context operations
-export OLLAMA_MAX_LOADED_MODELS=2
+export OLLAMA_MAX_LOADED_MODELS=1
 export OLLAMA_NUM_PARALLEL=1
 
 echo "[+] Pulling specialist models into local library..."
 echo "--> Router (Qwen 3.5 2B)..."
 ollama pull qwen3.5:2b
 
-echo "--> Shared Coding and Worker Model (Qwen 3.5 9B)..."
-ollama pull qwen3.5:9b
+echo " --> Specialized Coder Model (Qwen 2.5 Coder 7B)... "
+ollama pull qwen2.5-coder:7b-instruct
 
-echo "--> Verifier (Qwen 3.5 4B)..."
+echo " --> Verifier (Qwen 3.5 4B)... "
 ollama pull qwen3.5:4b
 
-echo "[i] Optional debugger: run 'ollama pull deepseek-r1:7b' if you want a separate reasoning model."
+echo " --> Deep Debugger (DeepSeek R1 7B)... "
+ollama pull deepseek-r1:7b
+
 
 # 3. Check for Docker & Docker Compose
 if command -v docker &> /dev/null; then

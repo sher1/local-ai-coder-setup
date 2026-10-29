@@ -9,7 +9,7 @@ Instead of relying on a single expensive frontier model to handle every task, th
 
 ## 🏗️ How It Works (System Architecture)
 
-When you submit a prompt or request, it flows through a multi-stage pipeline designed for efficiency and verification. Tasks are routed by type to a shared coding and worker model. If initial fixes fail verification, you can optionally route the error to a separate debugger model before retrying:
+When you submit a prompt or request, it flows through a multi-stage pipeline designed for efficiency and verification. Tasks are routed by type to a general worker, a coding specialist, or the debugger. The debugger analyzes failures before sending feedback to the coding model for a retry.
 
 ```
                           ┌────────────────┐
@@ -25,7 +25,8 @@ When you submit a prompt or request, it flows through a multi-stage pipeline des
       ▼                           ▼                           ▼
 ┌───────────────┐           ┌───────────────┐           ┌───────────────┐
 │ Coding Node   │           │ Research Node │           │ General Node  │
-│ Qwen 3.5 9B   │           │ Qwen 3.5 9B   │           │ Qwen 3.5 9B   │
+│ Qwen 2.5 Coder│           │ Qwen 3.5 4B   │           │ Qwen 3.5 4B   │
+│      7B       │           │               │           │               │
 └───────┬───────┘           └───────┬───────┘           └───────┬───────┘
         │                           │                           │
         └───────────────────────────┴───────────────┬───────────┘
@@ -42,7 +43,7 @@ When you submit a prompt or request, it flows through a multi-stage pipeline des
                                       │                           ▼
                                       ▼                    [ Final Output ]
                             ┌──────────────────┐
-                            │ Optional Debugger│  <-- Optional analysis of difficult failures
+                            │  Deep Debugger   │  <-- Analyzes difficult failures
                             │ (DeepSeek R1 7B) │
                             └─────────┬────────┘
                                       │
@@ -54,9 +55,9 @@ When you submit a prompt or request, it flows through a multi-stage pipeline des
 | Role | Model | Temperature | VRAM / System RAM | Responsibility |
 | :--- | :--- | :--- | :--- | :--- |
 | **Router** | `qwen3.5:2b` | `0.0` | ~2.7–3.1 GB model download | Classifies tasks, target languages, and target files, returning a strict JSON execution plan. |
-| **Coder and Worker** | `qwen3.5:9b` | `0.1–0.2` | ~6.6–7.6 GB model download | Shared model for coding across languages (including Go and PHP), research, data processing, and general tasks. |
-| **Verifier** | `qwen3.5:4b` | `0.0` | ~3.3–4.0 GB model download | Compares output against success criteria and returns concise feedback. |
-| **Optional Debugger** | `deepseek-r1:7b` | `0.6` | Varies by quantization and context | Separate model for difficult failures. Install it only if you want a dedicated debugging pass. |
+| **Coding Specialist** | `qwen2.5-coder:7b-instruct` | `0.1` | ~4.7 GB model download | Handles code generation, code reasoning, and code fixes across the project's languages. |
+| **General Worker and Verifier** | `qwen3.5:4b` | `0.0–0.2` | ~3.3–4.0 GB model download | Handles general/research tasks and checks outputs against success criteria. |
+| **Deep Debugger** | `deepseek-r1:7b` | `0.6` | Varies by quantization and context | Analyzes difficult failures and gives actionable feedback to the coding model. |
 
 ---
 
@@ -65,8 +66,8 @@ When you submit a prompt or request, it flows through a multi-stage pipeline des
 * **RAM:** 32 GB (System RAM is heavily utilized for model layer splitting).
 * **GPU VRAM:** 4 GB+ (AMD RX 6500 XT or equivalent).
 * **CPU:** 6 cores / 12 threads (e.g., AMD Ryzen 5 5600X).
-* **Disk Space:** ~15 GB free space for the default model weights, plus room for runtime and context memory.
-* **Performance:** The 9B model exceeds 4 GB of VRAM, so expect CPU/system RAM use and slower inference. Actual GPU offload depends on operating system and Ollama backend support.
+* **Disk Space:** ~17 GB free space for the model weights, plus room for runtime and context memory.
+* **Performance:** The 7B coder and debugger exceed 4 GB of VRAM, so expect CPU/system RAM use and slower inference. Actual GPU offload depends on operating system and Ollama backend support.
 
 ---
 
@@ -99,8 +100,8 @@ Ensure you have the following installed on your system:
 
 This script will automatically:
 * Install Ollama (if missing).
-* Configure environment variables for CPU/RAM optimization (`OLLAMA_MAX_LOADED_MODELS=2`).
-* Pull the three default model weights (Qwen3.5 2B, 4B, and 9B). The 9B weight is downloaded once and shared across coding and worker roles.
+* Configure Ollama for one loaded model and one parallel request, with Flash Attention enabled.
+* Pull the four models used by the team: Qwen3.5 2B, Qwen2.5-Coder 7B, Qwen3.5 4B, and DeepSeek R1 7B.
 * Launch the **n8n** visual workflow manager inside a Docker container via Docker Compose.
 
 ---
@@ -143,20 +144,22 @@ else
 fi
 
 # 2. Configure Ollama Environment for CPU/RAM optimization
-export OLLAMA_MAX_LOADED_MODELS=2
+export OLLAMA_FLASH_ATTENTION=1
+export OLLAMA_MAX_LOADED_MODELS=1
 export OLLAMA_NUM_PARALLEL=1
 
 echo "[+] Pulling specialist models into local library..."
 echo "--> Router (Qwen 3.5 2B)..."
 ollama pull qwen3.5:2b
 
-echo "--> Shared Coding and Worker Model (Qwen 3.5 9B)..."
-ollama pull qwen3.5:9b
+echo " --> Specialized Coder Model (Qwen 2.5 Coder 7B)... "
+ollama pull qwen2.5-coder:7b-instruct
 
 echo "--> Verifier (Qwen 3.5 4B)..."
 ollama pull qwen3.5:4b
 
-echo "[i] Optional debugger: run 'ollama pull deepseek-r1:7b' if desired."
+echo " --> Deep Debugger (DeepSeek R1 7B)... "
+ollama pull deepseek-r1:7b
 
 # 3. Check for Docker & Docker Compose
 if command -v docker &> /dev/null; then
@@ -221,7 +224,7 @@ Return raw JSON only:
 }
 ```
 
-#### Optional Deep Debugger Node System Prompt (`deepseek-r1:7b`)
+#### Deep Debugger Node System Prompt (`deepseek-r1:7b`)
 ```text
 Analyze the failing code and execution error logs provided.
 Identify the likely root cause of the failure from the code and error logs. Return a concise explanation and actionable instructions for the coding model. Provide conclusions and supporting evidence, not hidden chain-of-thought.
