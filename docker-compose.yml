@@ -9,6 +9,7 @@ services:
       - N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS=true
     volumes:
       - n8n_data:/home/node/.n8n
+      - ./.n8n:/files:ro
 
 volumes:
   n8n_data:

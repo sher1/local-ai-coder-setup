@@ -49,6 +49,34 @@ else
     exit 1
 fi
 
+# Wait for n8n to finish starting before importing the workflow.
+echo "[+] Waiting for n8n to become ready..."
+ready=false
+for ((attempt = 1; attempt <= 60; attempt++)); do
+    if curl -fsS http://localhost:5678/healthz >/dev/null; then
+        ready=true
+        break
+    fi
+    sleep 2
+done
+
+if [[ "$ready" != true ]]; then
+    echo "[!] n8n did not become ready within 120 seconds. Check 'docker compose logs n8n'."
+    exit 1
+fi
+
+# Keep the marker in the persistent n8n data volume to import only once.
+echo "[+] Importing workflow.json if this is the first setup..."
+docker exec -u node n8n_specialists sh -c '
+    marker=/home/node/.n8n/workflow-imported
+    if [ -f "$marker" ]; then
+        echo "[i] Workflow was already imported; skipping."
+    else
+        n8n import:workflow --input=/files/workflow.json
+        touch "$marker"
+    fi
+'
+
 echo "================================================="
 echo " Setup Complete!"
 echo " Ollama API running at: http://localhost:11434"
