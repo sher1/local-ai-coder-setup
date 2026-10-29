@@ -31,7 +31,7 @@ The n8n workflow operates as a multi-stage pipeline designed for efficiency, spe
 
 The Router analyzes user intent and generates a structured execution plan without attempting to solve the task itself.
 
-* **Model:** `qwen2.5:1.5b`
+* **Model:** `qwen3.5:2b`
 * **Temperature:** `0.0`
 * **Node Type:** **HTTP Request** node (`/api/generate`) or the official **Ollama** node.
 * **System Prompt:**
@@ -39,10 +39,12 @@ The Router analyzes user intent and generates a structured execution plan withou
   You are a strict task classifier. Analyze the user request and output ONLY a JSON object:
   {
     "task_type": "coding" | "research" | "data",
+    "language": "python" | "node" | "go" | "php" | "other",
     "target_worker": "coder" | "researcher" | "general",
     "files": [],
     "success_criteria": "string"
   }
+  Route coding tasks in any language, including Go and PHP, to "coder".
   Do not solve the problem. Return raw JSON only.
   ```
 
@@ -60,13 +62,13 @@ Add an n8n **Switch** or **If** node directly after the Router to parse the JSON
 ## 4. Specialist Worker Nodes
 
 ### A. Coding Specialist Path
-* **Model:** `qwen2.5-coder:7b-instruct-q4_K_M`
+* **Model:** `qwen2.5-coder:7b-instruct`
 * **Temperature:** `0.1`
 * **Role:** Inspects codebases, modifies local files, or executes terminal tests.
 * **n8n Integration:** Connect to local command/execute nodes to run tests (e.g., `pytest`) or access local workspace files.
 
 ### B. Research / General Worker Path
-* **Model:** `qwen2.5:7b-instruct-q4_K_M`
+* **Model:** `qwen3.5:4b`
 * **Temperature:** `0.2`
 * **Role:** Handles web research, SQL/Python generation, or general queries.
 * **n8n Integration:** Use n8n **HTTP Request** nodes to fetch external web content or query API endpoints safely without direct file system access.
@@ -77,7 +79,7 @@ Add an n8n **Switch** or **If** node directly after the Router to parse the JSON
 
 Once the worker node completes its output, pass both the **original success criteria** (from the Router) and the **worker's output** into the Verifier node.
 
-* **Model:** `qwen2.5:3b`
+* **Model:** `qwen3.5:4b`
 * **Temperature:** `0.0`
 * **Node Type:** **Ollama** or **HTTP Request** node.
 * **System Prompt:**
@@ -97,6 +99,17 @@ Once the worker node completes its output, pass both the **original success crit
 Add an **If** node after the Verifier to check if `passed == true`:
 
 * **Path A (`passed == true`):** Send the worker's output to the final response node to complete the workflow.
-* **Path B (`passed == false`):** Route the feedback log back into the input of the Specialist Worker node for correction.
+* **Path B (`passed == false`):** Send the code and failure details to the Deep Debugger, then pass its concise diagnosis to the Coding Specialist for correction. Route non-coding failures back to the relevant General Worker / Research Specialist node.
 
 > **Note:** Configure a Loop Counter node in n8n to cap retries at a **maximum of 2 iterations** to prevent infinite loop cycles.
+
+### Deep Debugger Node
+
+Use this node for failed coding attempts before retrying with the Coding Specialist.
+
+* **Model:** `deepseek-r1:7b`
+* **Temperature:** `0.6`
+* **System Prompt:**
+  ```text
+  Identify the likely root cause of the failure from the code and error logs. Return a concise explanation and actionable instructions for the coding model. Provide conclusions and supporting evidence, not hidden chain-of-thought.
+  ```

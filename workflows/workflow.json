@@ -1,33 +1,373 @@
 {
-  "name": "Multi-Model Specialist Pipeline",
-  "active": true,
+  "name": "Local Multi-Model Specialist Pipeline",
+  "active": false,
   "nodes": [
     {
-      "parameters": {
-        "httpMethod": "POST",
-        "path": "task-trigger"
-      },
-      "name": "Webhook Trigger",
-      "type": "n8n-nodes-base.webhook",
+      "parameters": {},
+      "id": "1164d4fb-21ac-4cf3-a773-510c2fb2fe41",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
       "typeVersion": 1,
-      "position": [250, 300]
+      "position": [240, 300]
     },
     {
       "parameters": {
-        "model": "qwen2.5:1.5b",
-        "options": { "temperature": 0.0 }
+        "assignments": {
+          "assignments": [
+            {
+              "id": "00a64471-e395-4a73-8f42-4368dbf0a1f9",
+              "name": "task",
+              "value": "Replace this text with the task to run, then execute the workflow.",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
       },
-      "name": "Router Node",
-      "type": "n8n-nodes-base.ollama",
-      "typeVersion": 1,
-      "position": [450, 300]
+      "id": "608aa601-8dfa-4de2-bdad-ec03298fc2a0",
+      "name": "Task Input",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [440, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:11434/api/chat",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({model:'qwen3.5:2b',stream:false,format:'json',options:{temperature:0},messages:[{role:'system',content:'You are a strict task classifier. Return only JSON with task_type (coding, research, or data), language (python, node, go, php, or other), target_worker (coder, researcher, or general), files (array), and success_criteria (string). Route coding tasks in any language, including Go and PHP, to coder. Do not solve the task.'},{role:'user',content:$json.task}]}) }}",
+        "options": {}
+      },
+      "id": "6b5ad98f-1877-405a-b9f8-adb7e8ca0001",
+      "name": "Router (Qwen3.5 2B)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [660, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const raw = String($json.message?.content ?? '').trim();\nconst cleaned = raw.replace(/^```(?:json)?\\s*/i, '').replace(/```$/, '').trim();\nlet plan;\ntry { plan = JSON.parse(cleaned); } catch (error) { throw new Error('Router did not return valid JSON: ' + raw); }\nif (!['coder', 'researcher', 'general'].includes(plan.target_worker)) throw new Error('Router returned an unsupported target_worker.');\nreturn [{ json: { task: $('Task Input').first().json.task, plan, retryCount: 0, retryFeedback: '' } }];"
+      },
+      "id": "4c1eb0df-b732-4f34-9f19-6f29a7e3c0be",
+      "name": "Parse Router Plan",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [880, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict", "version": 2 },
+          "conditions": [
+            {
+              "id": "e6d4d21d-98b5-42f8-a2f0-7b9c1ea263e4",
+              "leftValue": "={{ $json.plan.target_worker }}",
+              "rightValue": "coder",
+              "operator": { "type": "string", "operation": "equals" }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "96fc04a6-5734-4c8e-9f70-e441143e5b73",
+      "name": "Route Coding Task?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [1100, 300]
+    },
+    {
+      "parameters": { "jsCode": "return $input.all();" },
+      "id": "f80dfacc-b202-4bbf-940d-2aa50e873cd6",
+      "name": "Prepare Coder Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1320, 180]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:11434/api/chat",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({model:'qwen2.5-coder:7b-instruct',stream:false,options:{temperature:0.1},messages:[{role:'system',content:'You are the Coding Specialist. Analyze the task and produce a proposed solution, patch, or code guidance. You have no tools: do not claim to have edited files or run commands. State assumptions and include safe verification steps for a human to run.'},{role:'user',content:'Task: '+$json.task+'\\nSuccess criteria: '+($json.plan.success_criteria||'Not specified')+'\\nRelevant files: '+JSON.stringify($json.plan.files||[])+'\\nRetry feedback: '+($json.retryFeedback||'None')}]}) }}",
+        "options": {}
+      },
+      "id": "7428858e-bbf1-4a6c-b88d-916c4d8f980d",
+      "name": "Coding Specialist (Qwen2.5-Coder 7B)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1540, 180]
+    },
+    {
+      "parameters": {
+        "jsCode": "const state = $('Prepare Coder Input').item.json;\nreturn [{ json: { ...state, worker: 'coder', workerOutput: String($json.message?.content ?? '') } }];"
+      },
+      "id": "8330847f-4ea1-4abc-9b30-9a0e624a2b6b",
+      "name": "Pack Coder Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1760, 180]
+    },
+    {
+      "parameters": { "jsCode": "return $input.all();" },
+      "id": "7c0d1d3e-fc18-41b6-86ee-af77096673e0",
+      "name": "Prepare General Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1320, 420]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:11434/api/chat",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({model:'qwen3.5:4b',stream:false,options:{temperature:0.2},messages:[{role:'system',content:'You are the General and Research Worker. Answer the task using the supplied information. Do not claim to browse, fetch URLs, or use tools. Clearly identify when current external sources are needed.'},{role:'user',content:'Task: '+$json.task+'\\nSuccess criteria: '+($json.plan.success_criteria||'Not specified')+'\\nRetry feedback: '+($json.retryFeedback||'None')}]}) }}",
+        "options": {}
+      },
+      "id": "3b59c5a2-8cc8-45fa-8ad1-5ac158fd6dc8",
+      "name": "General Worker (Qwen3.5 4B)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1540, 420]
+    },
+    {
+      "parameters": {
+        "jsCode": "const state = $('Prepare General Input').item.json;\nreturn [{ json: { ...state, worker: state.plan.target_worker, workerOutput: String($json.message?.content ?? '') } }];"
+      },
+      "id": "21710ebc-5be7-41ce-91da-25fa29db1137",
+      "name": "Pack General Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1760, 420]
+    },
+    {
+      "parameters": { "jsCode": "return $input.all();" },
+      "id": "94a63ec1-11f5-48ad-a386-95101d063c77",
+      "name": "Prepare Verification Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1980, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:11434/api/chat",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({model:'qwen3.5:4b',stream:false,format:'json',options:{temperature:0},messages:[{role:'system',content:'Evaluate whether the worker output meets the success criteria. Return only JSON: {\\"passed\\": boolean, \\"feedback\\": string}. Be strict and do not claim tests were run unless evidence is included.'},{role:'user',content:'Task: '+$json.task+'\\nSuccess criteria: '+($json.plan.success_criteria||'Not specified')+'\\nWorker: '+$json.worker+'\\nWorker output: '+$json.workerOutput}]}) }}",
+        "options": {}
+      },
+      "id": "0da8da30-1a90-4b5f-a499-b1026a74a129",
+      "name": "Verifier (Qwen3.5 4B)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2200, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const raw = String($json.message?.content ?? '').trim();\nconst cleaned = raw.replace(/^```(?:json)?\\s*/i, '').replace(/```$/, '').trim();\nlet review;\ntry { review = JSON.parse(cleaned); } catch (error) { throw new Error('Verifier did not return valid JSON: ' + raw); }\nif (typeof review.passed !== 'boolean') throw new Error('Verifier response must contain a boolean passed field.');\nconst state = $('Prepare Verification Input').item.json;\nreturn [{ json: { ...state, passed: review.passed, feedback: String(review.feedback ?? '') } }];"
+      },
+      "id": "67b2e3ec-c918-4bd2-9a65-2a43f83e45ef",
+      "name": "Parse Verification",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2420, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict", "version": 2 },
+          "conditions": [
+            {
+              "id": "a956c522-ea28-4494-802e-18e3e04867f6",
+              "leftValue": "={{ $json.passed }}",
+              "rightValue": true,
+              "operator": { "type": "boolean", "operation": "true", "singleValue": true }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "81388b47-e31a-48b5-9687-4d0e542f3d09",
+      "name": "Passed Verification?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [2640, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict", "version": 2 },
+          "conditions": [
+            {
+              "id": "b5e1dd51-cc9a-43b5-8e5c-df71f2efae21",
+              "leftValue": "={{ $json.plan.target_worker }}",
+              "rightValue": "coder",
+              "operator": { "type": "string", "operation": "equals" }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "a37d6cbe-3f50-40d7-92f0-76bc2a3e3c74",
+      "name": "Coding Failure?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [2860, 500]
+    },
+    {
+      "parameters": { "jsCode": "return $input.all();" },
+      "id": "75f0b75f-e305-483b-9218-c0ca85bdac5c",
+      "name": "Prepare Debugger Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [3080, 420]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:11434/api/chat",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({model:'deepseek-r1:7b',stream:false,options:{temperature:0.6},messages:[{role:'system',content:'Identify the likely root cause from the code and failure details. Return a concise explanation and actionable instructions. Provide conclusions and evidence, not hidden chain-of-thought.'},{role:'user',content:'Task: '+$json.task+'\\nWorker output: '+$json.workerOutput+'\\nVerifier feedback: '+$json.feedback}]}) }}",
+        "options": {}
+      },
+      "id": "2b0bb840-5d02-4b8c-815f-12f4cff6b83d",
+      "name": "Deep Debugger (DeepSeek R1 7B)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [3300, 420]
+    },
+    {
+      "parameters": {
+        "jsCode": "const state = $('Prepare Debugger Input').item.json;\nreturn [{ json: { ...state, debuggerAnalysis: String($json.message?.content ?? '') } }];"
+      },
+      "id": "7c8ad2a3-61c2-4543-8d28-927058de36f7",
+      "name": "Pack Debugger Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [3520, 420]
+    },
+    {
+      "parameters": {
+        "jsCode": "const state = $input.first().json;\nconst retryCount = Number(state.retryCount || 0) + 1;\nconst notes = [state.feedback, state.debuggerAnalysis].filter(Boolean).join('\\n');\nreturn [{ json: { ...state, retryCount, retryFeedback: notes, passed: false } }];"
+      },
+      "id": "5a9df49c-2fb8-4d55-9415-308f786ba0f9",
+      "name": "Prepare Retry",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [3740, 560]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict", "version": 2 },
+          "conditions": [
+            {
+              "id": "8cd57435-738b-464f-8a26-8ec6cffc4110",
+              "leftValue": "={{ $json.retryCount }}",
+              "rightValue": 2,
+              "operator": { "type": "number", "operation": "lte" }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "f8c054f7-0c83-4a1e-8f3d-79e5bda76066",
+      "name": "Retries Remaining?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [3960, 560]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict", "version": 2 },
+          "conditions": [
+            {
+              "id": "bbd3d20a-9817-4701-9e85-c0d30692b494",
+              "leftValue": "={{ $json.plan.target_worker }}",
+              "rightValue": "coder",
+              "operator": { "type": "string", "operation": "equals" }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "462db5d1-62a1-473d-94e0-8f0305826f2e",
+      "name": "Retry Coding Task?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [4180, 480]
+    },
+    {
+      "parameters": {
+        "jsCode": "const d = $input.first().json;\nreturn [{ json: { task: d.task, worker: d.worker || d.plan?.target_worker || 'unknown', passed: d.passed === true, result: d.workerOutput || '', feedback: d.feedback || (d.retryCount > 2 ? 'Maximum of two retries reached.' : ''), debuggerAnalysis: d.debuggerAnalysis || '', retriesUsed: Math.min(Number(d.retryCount || 0), 2) } }];"
+      },
+      "id": "bff6a75b-dcbc-4964-9fb0-65cb2461cab7",
+      "name": "Final Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [4400, 760]
     }
   ],
   "connections": {
-    "Webhook Trigger": {
+    "Manual Trigger": { "main": [[{ "node": "Task Input", "type": "main", "index": 0 }]] },
+    "Task Input": { "main": [[{ "node": "Router (Qwen3.5 2B)", "type": "main", "index": 0 }]] },
+    "Router (Qwen3.5 2B)": { "main": [[{ "node": "Parse Router Plan", "type": "main", "index": 0 }]] },
+    "Parse Router Plan": { "main": [[{ "node": "Route Coding Task?", "type": "main", "index": 0 }]] },
+    "Route Coding Task?": {
       "main": [
-        [{ "node": "Router Node", "type": "main", "index": 0 }]
+        [{ "node": "Prepare Coder Input", "type": "main", "index": 0 }],
+        [{ "node": "Prepare General Input", "type": "main", "index": 0 }]
+      ]
+    },
+    "Prepare Coder Input": { "main": [[{ "node": "Coding Specialist (Qwen2.5-Coder 7B)", "type": "main", "index": 0 }]] },
+    "Coding Specialist (Qwen2.5-Coder 7B)": { "main": [[{ "node": "Pack Coder Result", "type": "main", "index": 0 }]] },
+    "Pack Coder Result": { "main": [[{ "node": "Prepare Verification Input", "type": "main", "index": 0 }]] },
+    "Prepare General Input": { "main": [[{ "node": "General Worker (Qwen3.5 4B)", "type": "main", "index": 0 }]] },
+    "General Worker (Qwen3.5 4B)": { "main": [[{ "node": "Pack General Result", "type": "main", "index": 0 }]] },
+    "Pack General Result": { "main": [[{ "node": "Prepare Verification Input", "type": "main", "index": 0 }]] },
+    "Prepare Verification Input": { "main": [[{ "node": "Verifier (Qwen3.5 4B)", "type": "main", "index": 0 }]] },
+    "Verifier (Qwen3.5 4B)": { "main": [[{ "node": "Parse Verification", "type": "main", "index": 0 }]] },
+    "Parse Verification": { "main": [[{ "node": "Passed Verification?", "type": "main", "index": 0 }]] },
+    "Passed Verification?": {
+      "main": [
+        [{ "node": "Final Result", "type": "main", "index": 0 }],
+        [{ "node": "Coding Failure?", "type": "main", "index": 0 }]
+      ]
+    },
+    "Coding Failure?": {
+      "main": [
+        [{ "node": "Prepare Debugger Input", "type": "main", "index": 0 }],
+        [{ "node": "Prepare Retry", "type": "main", "index": 0 }]
+      ]
+    },
+    "Prepare Debugger Input": { "main": [[{ "node": "Deep Debugger (DeepSeek R1 7B)", "type": "main", "index": 0 }]] },
+    "Deep Debugger (DeepSeek R1 7B)": { "main": [[{ "node": "Pack Debugger Result", "type": "main", "index": 0 }]] },
+    "Pack Debugger Result": { "main": [[{ "node": "Prepare Retry", "type": "main", "index": 0 }]] },
+    "Prepare Retry": { "main": [[{ "node": "Retries Remaining?", "type": "main", "index": 0 }]] },
+    "Retries Remaining?": {
+      "main": [
+        [{ "node": "Retry Coding Task?", "type": "main", "index": 0 }],
+        [{ "node": "Final Result", "type": "main", "index": 0 }]
+      ]
+    },
+    "Retry Coding Task?": {
+      "main": [
+        [{ "node": "Prepare Coder Input", "type": "main", "index": 0 }],
+        [{ "node": "Prepare General Input", "type": "main", "index": 0 }]
       ]
     }
-  }
+  },
+  "settings": { "executionOrder": "v1" },
+  "versionId": "34039f9a-f20a-4c86-b8a6-3869ba58ccad",
+  "meta": { "templateCredsSetupCompleted": true }
 }
