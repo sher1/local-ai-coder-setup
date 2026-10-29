@@ -1,7 +1,7 @@
-## This is based on the article [here](https://www.xda-developers.com/replaced-claude-code-tiny-specialists-boring-setup-worked-better/) 
+## This is based on the article [here](https://www.xda-developers.com/replaced-claude-code-tiny-specialists-boring-setup-worked-better/)
 # Local Multi-Model AI Specialist Team
 
-An autonomous, multi-agent LLM orchestration system powered by [Ollama](https://ollama.com/) and [n8n](https://n8n.io/). 
+An autonomous, multi-agent LLM orchestration system powered by [Ollama](https://ollama.com/) and [n8n](https://n8n.io/).
 
 Instead of relying on a single expensive frontier model to handle every task, this architecture divides work across a team of lightweight, specialized local models running entirely on your machine.
 
@@ -9,7 +9,7 @@ Instead of relying on a single expensive frontier model to handle every task, th
 
 ## 🏗️ How It Works (System Architecture)
 
-When you submit a prompt or request, it flows through a multi-stage pipeline designed for efficiency, speed, and strict verification. Tasks are routed based on language and task type. If initial fixes fail verification, execution escalates to a dedicated **Deep Debugger** node utilizing chain-of-thought reasoning before re-attempting code generation:
+When you submit a prompt or request, it flows through a multi-stage pipeline designed for efficiency and verification. Tasks are routed by type to a shared coding and worker model. If initial fixes fail verification, you can optionally route the error to a separate debugger model before retrying:
 
 ```
                           ┌────────────────┐
@@ -21,14 +21,14 @@ When you submit a prompt or request, it flows through a multi-stage pipeline des
                     │   Router (Qwen 3.5 2B)   │  <-- Analyzes intent, outputs JSON plan
                     └─────────────┬────────────┘
                                   │
-      ┌───────────────────────────┼───────────────────────────┬───────────────────────────┐
-      ▼                           ▼                           ▼                           ▼
-┌───────────────┐           ┌───────────────┐           ┌───────────────┐           ┌───────────────┐
-│ Coder Node    │           │ Go / PHP Node │           │ Research Node │           │ General Node  │
-│(Qwen 3.5 9B)  │           │(DeepSeek 16B) │           │ (Qwen 3.5 9B) │           │ (Qwen 3.5 9B) │
-└───────┬───────┘           └───────┬───────┘           └───────┬───────┘           └───────┬───────┘
-        │                           │                           │                           │
-        └───────────────────────────┴───────────────┬───────────┴───────────────────────────┘
+      ┌───────────────────────────┼───────────────────────────┐
+      ▼                           ▼                           ▼
+┌───────────────┐           ┌───────────────┐           ┌───────────────┐
+│ Coding Node   │           │ Research Node │           │ General Node  │
+│ Qwen 3.5 9B   │           │ Qwen 3.5 9B   │           │ Qwen 3.5 9B   │
+└───────┬───────┘           └───────┬───────┘           └───────┬───────┘
+        │                           │                           │
+        └───────────────────────────┴───────────────┬───────────┘
                                                     │
                                                     ▼
                                       ┌──────────────────────────┐
@@ -42,7 +42,7 @@ When you submit a prompt or request, it flows through a multi-stage pipeline des
                                       │                           ▼
                                       ▼                    [ Final Output ]
                             ┌──────────────────┐
-                            │  Deep Debugger   │  <-- Chain-of-Thought reasoning on stack traces/logs
+                            │ Optional Debugger│  <-- Optional analysis of difficult failures
                             │ (DeepSeek R1 7B) │
                             └─────────┬────────┘
                                       │
@@ -53,12 +53,10 @@ When you submit a prompt or request, it flows through a multi-stage pipeline des
 
 | Role | Model | Temperature | VRAM / System RAM | Responsibility |
 | :--- | :--- | :--- | :--- | :--- |
-| **Router** | `qwen3.5:2b` | `0.0` | ~1.5 GB | Classifies tasks, target languages, and target files, returning a strict JSON execution plan. |
-| **Coder Specialist (General)** | `qwen3.5:9b` | `0.1` | ~6.0 GB Total | Inspects codebases, modifies local files, and handles Python, Node, JS, and general scripting. |
-| **Go & PHP Specialist** | `deepseek-coder-v2:16b` | `0.1` | ~9.0 GB Total | Dedicated MoE model for complex Go interfaces, channels, PHP PSR standards, and framework logic (Drupal/Laravel). |
-| **Worker Specialist** | `qwen3.5:9b` | `0.2` | ~6.0 GB Total | Handles web research, data processing, and automated tasks via approved n8n nodes. |
-| **Verifier** | `qwen3.5:4b` | `0.0` | ~3.0 GB | Compares worker output against success criteria. If tests fail, routes output to Debugger or Coder with error logs. |
-| **Deep Debugger** | `deepseek-r1:7b` | `0.6` | ~5.0 GB Total | Analyzes execution failures and stack traces using explicit chain-of-thought reasoning before feeding analysis back to the coder. |
+| **Router** | `qwen3.5:2b` | `0.0` | ~2.7–3.1 GB model download | Classifies tasks, target languages, and target files, returning a strict JSON execution plan. |
+| **Coder and Worker** | `qwen3.5:9b` | `0.1–0.2` | ~6.6–7.6 GB model download | Shared model for coding across languages (including Go and PHP), research, data processing, and general tasks. |
+| **Verifier** | `qwen3.5:4b` | `0.0` | ~3.3–4.0 GB model download | Compares output against success criteria and returns concise feedback. |
+| **Optional Debugger** | `deepseek-r1:7b` | `0.6` | Varies by quantization and context | Separate model for difficult failures. Install it only if you want a dedicated debugging pass. |
 
 ---
 
@@ -67,7 +65,8 @@ When you submit a prompt or request, it flows through a multi-stage pipeline des
 * **RAM:** 32 GB (System RAM is heavily utilized for model layer splitting).
 * **GPU VRAM:** 4 GB+ (AMD RX 6500 XT or equivalent).
 * **CPU:** 6 cores / 12 threads (e.g., AMD Ryzen 5 5600X).
-* **Disk Space:** ~35 GB free space for local model weights.
+* **Disk Space:** ~15 GB free space for the default model weights, plus room for runtime and context memory.
+* **Performance:** The 9B model exceeds 4 GB of VRAM, so expect CPU/system RAM use and slower inference. Actual GPU offload depends on operating system and Ollama backend support.
 
 ---
 
@@ -101,7 +100,7 @@ Ensure you have the following installed on your system:
 This script will automatically:
 * Install Ollama (if missing).
 * Configure environment variables for CPU/RAM optimization (`OLLAMA_MAX_LOADED_MODELS=2`).
-* Pull all required specialist model weights into your local library.
+* Pull the three default model weights (Qwen3.5 2B, 4B, and 9B). The 9B weight is downloaded once and shared across coding and worker roles.
 * Launch the **n8n** visual workflow manager inside a Docker container via Docker Compose.
 
 ---
@@ -151,20 +150,13 @@ echo "[+] Pulling specialist models into local library..."
 echo "--> Router (Qwen 3.5 2B)..."
 ollama pull qwen3.5:2b
 
-echo "--> Coding Specialist - General (Qwen 3.5 9B)..."
-ollama pull qwen3.5:9b
-
-echo "--> Coding Specialist - Go & PHP (DeepSeek Coder V2 16B)..."
-ollama pull deepseek-coder-v2:16b
-
-echo "--> General Worker (Qwen 3.5 9B)..."
+echo "--> Shared Coding and Worker Model (Qwen 3.5 9B)..."
 ollama pull qwen3.5:9b
 
 echo "--> Verifier (Qwen 3.5 4B)..."
 ollama pull qwen3.5:4b
 
-echo "--> Deep Debugger (DeepSeek R1 7B)..."
-ollama pull deepseek-r1:7b
+echo "[i] Optional debugger: run 'ollama pull deepseek-r1:7b' if desired."
 
 # 3. Check for Docker & Docker Compose
 if command -v docker &> /dev/null; then
@@ -211,11 +203,11 @@ You are a strict task classifier. Analyze the user request and output ONLY a JSO
 {
   "task_type": "coding" | "research" | "data",
   "language": "python" | "node" | "go" | "php" | "other",
-  "target_worker": "coder_general" | "coder_go_php" | "researcher" | "general",
+  "target_worker": "coder" | "researcher" | "general",
   "files": [],
   "success_criteria": "string"
 }
-If language is "go" or "php", target_worker MUST be "coder_go_php".
+Route coding tasks in any language, including Go and PHP, to "coder".
 Do not solve the problem. Return raw JSON only.
 ```
 
@@ -229,11 +221,10 @@ Return raw JSON only:
 }
 ```
 
-#### Deep Debugger Node System Prompt (`deepseek-r1:7b`)
+#### Optional Deep Debugger Node System Prompt (`deepseek-r1:7b`)
 ```text
-Analyze the failing code and execution error logs provided. 
-Reason step-by-step to identify the root cause of the bug in Python, Node, Go, or PHP.
-Provide a clear analysis of why it failed and actionable instructions for the coding model to apply the fix.
+Analyze the failing code and execution error logs provided.
+Identify the likely root cause of the failure from the code and error logs. Return a concise explanation and actionable instructions for the coding model. Provide conclusions and supporting evidence, not hidden chain-of-thought.
 ```
 
 ---
