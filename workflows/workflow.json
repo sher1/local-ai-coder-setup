@@ -4,32 +4,36 @@
   "active": false,
   "nodes": [
     {
-      "parameters": {},
-      "id": "1164d4fb-21ac-4cf3-a773-510c2fb2fe41",
-      "name": "Manual Trigger",
-      "type": "n8n-nodes-base.manualTrigger",
-      "typeVersion": 1,
-      "position": [240, 300]
-    },
-    {
       "parameters": {
-        "assignments": {
-          "assignments": [
+        "formTitle": "Local AI Task Prompt",
+        "formDescription": "Describe a task for the local specialist workflow.",
+        "formFields": {
+          "values": [
             {
-              "id": "00a64471-e395-4a73-8f42-4368dbf0a1f9",
-              "name": "task",
-              "value": "Replace this text with the task to run, then execute the workflow.",
-              "type": "string"
+              "fieldLabel": "Task",
+              "fieldName": "task",
+              "fieldType": "textarea",
+              "placeholder": "Describe the task you want the specialists to handle...",
+              "requiredField": true
             }
           ]
         },
-        "options": {}
+        "responseMode": "lastNode",
+        "options": {
+          "buttonLabel": "Run task",
+          "path": "local-ai-task",
+          "appendAttribution": false
+        }
       },
-      "id": "608aa601-8dfa-4de2-bdad-ec03298fc2a0",
-      "name": "Task Input",
-      "type": "n8n-nodes-base.set",
-      "typeVersion": 3.4,
-      "position": [440, 300]
+      "id": "1164d4fb-21ac-4cf3-a773-510c2fb2fe41",
+      "webhookId": "0ac4f5e8-6c32-45d4-911c-553b2cb3ed79",
+      "name": "Task Prompt",
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.4,
+      "position": [
+        240,
+        300
+      ]
     },
     {
       "parameters": {
@@ -37,35 +41,49 @@
         "url": "http://host.docker.internal:11434/api/chat",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({model:'qwen3.5:2b',stream:false,options:{temperature:0},messages:[{role:'system',content:'You are a strict task classifier. Return only JSON with task_type (coding, research, or data), language (python, node, go, php, or other), target_worker (coder, researcher, or general), files (array), and success_criteria (string). Route coding tasks in any language, including Go and PHP, to coder. Do not solve the task.'},{role:'user',content:$json.task}]}) }}",
+        "jsonBody": "={{ JSON.stringify({model:'qwen3.5:2b',stream:false,think:false,options:{temperature:0,num_predict:256},messages:[{role:'system',content:\"You are a strict task classifier. Return only a JSON object with task_type (coding, research, or data), language (python, node, go, php, or other), target_worker (coder, researcher, or general), files (array), and success_criteria (string). Route coding tasks in any language, including Go and PHP, to coder. Do not solve the task. Derive concise criteria from what the user actually asked; do not invent requirements for execution, tests, files being written, installation, servers, or deployment unless explicitly requested. For simple code-generation requests, success means providing the requested code and only necessary concise usage notes. Return raw JSON only.\"},{role:'user',content:$json.task}]}) }}",
         "options": {}
       },
       "id": "6b5ad98f-1877-405a-b9f8-adb7e8ca0001",
       "name": "Router (Qwen3.5 2B)",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [660, 300]
+      "position": [
+        660,
+        300
+      ]
     },
     {
       "parameters": {
-        "jsCode": "const raw = String($json.message?.content ?? '').trim();\nconst cleaned = raw.replace(/^```(?:json)?\\s*/i, '').replace(/```$/, '').trim();\nlet plan;\ntry { plan = JSON.parse(cleaned); } catch (error) { throw new Error('Router did not return valid JSON: ' + raw); }\nif (!['coder', 'researcher', 'general'].includes(plan.target_worker)) throw new Error('Router returned an unsupported target_worker.');\nconst tokenUsage = [{ model: 'qwen3.5:2b', promptTokens: Number($json.prompt_eval_count || 0), generatedTokens: Number($json.eval_count || 0) }];\nreturn [{ json: { task: $('Task Input').first().json.task, plan, retryCount: 0, retryFeedback: '', tokenUsage } }];"
+        "jsCode": "const raw = String($json.message?.content ?? '').trim();\nconst cleaned = raw.replace(/^```(?:json)?\\s*/i, '').replace(/```$/, '').trim();\nlet plan;\ntry { plan = JSON.parse(cleaned); } catch (error) { throw new Error('Router did not return valid JSON: ' + raw); }\nif (!['coder', 'researcher', 'general'].includes(plan.target_worker)) throw new Error('Router returned an unsupported target_worker.');\nconst task = $('Prepare Router Input').first().json.task;\nconst stepElapsedMs = Math.max(0, Date.now() - Number($('Prepare Router Input').first().json.stepStartedAt || Date.now()));\nconst usage = { stepElapsedMs, model: 'qwen3.5:2b', promptTokens: Number($json.prompt_eval_count || 0), generatedTokens: Number($json.eval_count || 0), timingsMs: { total: Number.isFinite(Number($json.total_duration)) ? Number($json.total_duration) / 1e6 : null, load: Number.isFinite(Number($json.load_duration)) ? Number($json.load_duration) / 1e6 : null, promptEval: Number.isFinite(Number($json.prompt_eval_duration)) ? Number($json.prompt_eval_duration) / 1e6 : null, generation: Number.isFinite(Number($json.eval_duration)) ? Number($json.eval_duration) / 1e6 : null } };\nconst logLine = JSON.stringify({ executionId: $execution.id, timestamp: new Date().toISOString(), step: 'Router', model: usage.model, input: { task }, output: raw, usage, timingsMs: usage.timingsMs, stepElapsedMs }) + '\\n';\nreturn [{ json: { task, plan, retryCount: 0, retryFeedback: '', tokenUsage: [usage], logLine } }];"
       },
       "id": "4c1eb0df-b732-4f34-9f19-6f29a7e3c0be",
       "name": "Parse Router Plan",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [880, 300]
+      "position": [
+        880,
+        300
+      ]
     },
     {
       "parameters": {
         "conditions": {
-          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict", "version": 2 },
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
           "conditions": [
             {
               "id": "e6d4d21d-98b5-42f8-a2f0-7b9c1ea263e4",
               "leftValue": "={{ $json.plan.target_worker }}",
               "rightValue": "coder",
-              "operator": { "type": "string", "operation": "equals" }
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
             }
           ],
           "combinator": "and"
@@ -76,15 +94,23 @@
       "name": "Route Coding Task?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
-      "position": [1100, 300]
+      "position": [
+        1100,
+        300
+      ]
     },
     {
-      "parameters": { "jsCode": "return $input.all();" },
+      "parameters": {
+        "jsCode": "return $input.all().map(item => ({ json: { ...item.json, stepStartedAt: Date.now() } }));"
+      },
       "id": "f80dfacc-b202-4bbf-940d-2aa50e873cd6",
       "name": "Prepare Coder Input",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [1320, 180]
+      "position": [
+        1320,
+        180
+      ]
     },
     {
       "parameters": {
@@ -92,32 +118,43 @@
         "url": "http://host.docker.internal:11434/api/chat",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({model:'qwen2.5-coder:7b-instruct',stream:false,options:{temperature:0.1},messages:[{role:'system',content:'You are the Coding Specialist. Analyze the task and produce a proposed solution, patch, or code guidance. You have no tools: do not claim to have edited files or run commands. State assumptions and include safe verification steps for a human to run.'},{role:'user',content:'Task: '+$json.task+'\\nSuccess criteria: '+($json.plan.success_criteria||'Not specified')+'\\nRelevant files: '+JSON.stringify($json.plan.files||[])+'\\nRetry feedback: '+($json.retryFeedback||'None')}]}) }}",
+        "jsonBody": "={{ JSON.stringify({model:'qwen2.5-coder:7b-instruct',stream:false,options:{temperature:0.1},messages:[{role:'system',content:\"You are the Coding Specialist. You have no tools and cannot inspect or modify files, run commands, or execute tests. Satisfy the user's request directly and keep the solution proportional to it. For a simple script request, provide a complete minimal script first; do not add installation, web-server, hosting, or deployment instructions unless asked. Do not claim to have edited files or run commands. State relevant assumptions briefly and give a concise optional verification command when useful.\"},{role:'user',content:'Task: '+$json.task+'\\nSuccess criteria: '+($json.plan.success_criteria||'Not specified')+'\\nRelevant files: '+JSON.stringify($json.plan.files||[])+'\\nRetry feedback: '+($json.retryFeedback||'None')}]}) }}",
         "options": {}
       },
       "id": "7428858e-bbf1-4a6c-b88d-916c4d8f980d",
       "name": "Coding Specialist (Qwen2.5-Coder 7B)",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [1540, 180]
+      "position": [
+        1540,
+        180
+      ]
     },
     {
       "parameters": {
-        "jsCode": "const state = $('Prepare Coder Input').item.json;\nconst tokenUsage = [...(state.tokenUsage || []), { model: 'qwen2.5-coder:7b-instruct', promptTokens: Number($json.prompt_eval_count || 0), generatedTokens: Number($json.eval_count || 0) }];\nreturn [{ json: { ...state, tokenUsage, worker: 'coder', workerOutput: String($json.message?.content ?? '') } }];"
+        "jsCode": "const state = $('Prepare Coder Input').item.json;\nconst stepElapsedMs = Math.max(0, Date.now() - Number(state.stepStartedAt || Date.now()));\nconst model = 'qwen2.5-coder:7b-instruct';\nconst workerOutput = String($json.message?.content ?? '');\nconst usage = { stepElapsedMs, model, promptTokens: Number($json.prompt_eval_count || 0), generatedTokens: Number($json.eval_count || 0), timingsMs: { total: Number.isFinite(Number($json.total_duration)) ? Number($json.total_duration) / 1e6 : null, load: Number.isFinite(Number($json.load_duration)) ? Number($json.load_duration) / 1e6 : null, promptEval: Number.isFinite(Number($json.prompt_eval_duration)) ? Number($json.prompt_eval_duration) / 1e6 : null, generation: Number.isFinite(Number($json.eval_duration)) ? Number($json.eval_duration) / 1e6 : null } };\nconst logLine = JSON.stringify({ executionId: $execution.id, timestamp: new Date().toISOString(), step: 'Coding Specialist', model, input: { task: state.task, successCriteria: state.plan.success_criteria || 'Not specified', files: state.plan.files || [], retryFeedback: state.retryFeedback || 'None' }, output: workerOutput, usage, timingsMs: usage.timingsMs, stepElapsedMs }) + '\\n';\nconst tokenUsage = [...(state.tokenUsage || []), usage];\nreturn [{ json: { ...state, tokenUsage, worker: 'coder', workerOutput, logLine } }];"
       },
       "id": "8330847f-4ea1-4abc-9b30-9a0e624a2b6b",
       "name": "Pack Coder Result",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [1760, 180]
+      "position": [
+        1760,
+        180
+      ]
     },
     {
-      "parameters": { "jsCode": "return $input.all();" },
+      "parameters": {
+        "jsCode": "return $input.all().map(item => ({ json: { ...item.json, stepStartedAt: Date.now() } }));"
+      },
       "id": "7c0d1d3e-fc18-41b6-86ee-af77096673e0",
       "name": "Prepare General Input",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [1320, 420]
+      "position": [
+        1320,
+        420
+      ]
     },
     {
       "parameters": {
@@ -132,25 +169,36 @@
       "name": "General Worker (Qwen3.5 4B)",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [1540, 420]
+      "position": [
+        1540,
+        420
+      ]
     },
     {
       "parameters": {
-        "jsCode": "const state = $('Prepare General Input').item.json;\nconst tokenUsage = [...(state.tokenUsage || []), { model: 'qwen3.5:4b', promptTokens: Number($json.prompt_eval_count || 0), generatedTokens: Number($json.eval_count || 0) }];\nreturn [{ json: { ...state, tokenUsage, worker: state.plan.target_worker, workerOutput: String($json.message?.content ?? '') } }];"
+        "jsCode": "const state = $('Prepare General Input').item.json;\nconst stepElapsedMs = Math.max(0, Date.now() - Number(state.stepStartedAt || Date.now()));\nconst model = 'qwen3.5:4b';\nconst workerOutput = String($json.message?.content ?? '');\nconst usage = { stepElapsedMs, model, promptTokens: Number($json.prompt_eval_count || 0), generatedTokens: Number($json.eval_count || 0), timingsMs: { total: Number.isFinite(Number($json.total_duration)) ? Number($json.total_duration) / 1e6 : null, load: Number.isFinite(Number($json.load_duration)) ? Number($json.load_duration) / 1e6 : null, promptEval: Number.isFinite(Number($json.prompt_eval_duration)) ? Number($json.prompt_eval_duration) / 1e6 : null, generation: Number.isFinite(Number($json.eval_duration)) ? Number($json.eval_duration) / 1e6 : null } };\nconst logLine = JSON.stringify({ executionId: $execution.id, timestamp: new Date().toISOString(), step: 'General Worker', model, input: { task: state.task, successCriteria: state.plan.success_criteria || 'Not specified', retryFeedback: state.retryFeedback || 'None' }, output: workerOutput, usage, timingsMs: usage.timingsMs, stepElapsedMs }) + '\\n';\nconst tokenUsage = [...(state.tokenUsage || []), usage];\nreturn [{ json: { ...state, tokenUsage, worker: state.plan.target_worker, workerOutput, logLine } }];"
       },
       "id": "21710ebc-5be7-41ce-91da-25fa29db1137",
       "name": "Pack General Result",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [1760, 420]
+      "position": [
+        1760,
+        420
+      ]
     },
     {
-      "parameters": { "jsCode": "return $input.all();" },
+      "parameters": {
+        "jsCode": "return $input.all().map(item => ({ json: { ...item.json, stepStartedAt: Date.now() } }));"
+      },
       "id": "94a63ec1-11f5-48ad-a386-95101d063c77",
       "name": "Prepare Verification Input",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [1980, 300]
+      "position": [
+        1980,
+        300
+      ]
     },
     {
       "parameters": {
@@ -158,35 +206,50 @@
         "url": "http://host.docker.internal:11434/api/chat",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({model:'qwen3.5:4b',stream:false,options:{temperature:0},messages:[{role:'system',content:'Evaluate whether the worker output meets the success criteria. Return JSON with a boolean passed field and a string feedback field. Be strict and do not claim tests were run unless evidence is included.'},{role:'user',content:'Task: '+$json.task+'\\nSuccess criteria: '+($json.plan.success_criteria||'Not specified')+'\\nWorker: '+$json.worker+'\\nWorker output: '+$json.workerOutput}]}) }}",
+        "jsonBody": "={{ JSON.stringify({model:'qwen3.5:4b',stream:false,think:false,options:{temperature:0,num_predict:256},messages:[{role:'system',content:\"You are a strict but fair verifier. Evaluate the worker output against the original user task and reasonable success criteria. The worker has no tools and cannot edit files or execute code. For code-generation requests, check that the requested code is present and appears logically correct; do not fail it merely because it was not executed or tested unless the user explicitly requested execution/testing and this workflow actually performed it. Do not enforce invented setup, hosting, installation, or deployment requirements. Fail only for a missing requested deliverable, a clear correctness/safety issue, or an unmet explicit requirement. Return JSON with a boolean passed field and a concise string feedback field.\"},{role:'user',content:'Task: '+$json.task+'\\nSuccess criteria: '+($json.plan.success_criteria||'Not specified')+'\\nWorker: '+$json.worker+'\\nWorker output: '+$json.workerOutput}]}) }}",
         "options": {}
       },
       "id": "0da8da30-1a90-4b5f-a499-b1026a74a129",
       "name": "Verifier (Qwen3.5 4B)",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [2200, 300]
+      "position": [
+        2200,
+        300
+      ]
     },
     {
       "parameters": {
-        "jsCode": "const raw = String($json.message?.content ?? '').trim();\nconst cleaned = raw.replace(/^```(?:json)?\\s*/i, '').replace(/```$/, '').trim();\nlet review;\ntry { review = JSON.parse(cleaned); } catch (error) { throw new Error('Verifier did not return valid JSON: ' + raw); }\nif (typeof review.passed !== 'boolean') throw new Error('Verifier response must contain a boolean passed field.');\nconst state = $('Prepare Verification Input').item.json;\nconst tokenUsage = [...(state.tokenUsage || []), { model: 'qwen3.5:4b', promptTokens: Number($json.prompt_eval_count || 0), generatedTokens: Number($json.eval_count || 0) }];\nreturn [{ json: { ...state, tokenUsage, passed: review.passed, feedback: String(review.feedback ?? '') } }];"
+        "jsCode": "const raw = String($json.message?.content ?? '').trim();\nconst cleaned = raw.replace(/^```(?:json)?\\s*/i, '').replace(/```$/, '').trim();\nlet review;\ntry { review = JSON.parse(cleaned); } catch (error) { throw new Error('Verifier did not return valid JSON: ' + raw); }\nif (typeof review.passed !== 'boolean') throw new Error('Verifier response must contain a boolean passed field.');\nconst state = $('Prepare Verification Input').item.json;\nconst stepElapsedMs = Math.max(0, Date.now() - Number(state.stepStartedAt || Date.now()));\nconst model = 'qwen3.5:4b';\nconst feedback = String(review.feedback ?? '');\nconst usage = { stepElapsedMs, model, promptTokens: Number($json.prompt_eval_count || 0), generatedTokens: Number($json.eval_count || 0), timingsMs: { total: Number.isFinite(Number($json.total_duration)) ? Number($json.total_duration) / 1e6 : null, load: Number.isFinite(Number($json.load_duration)) ? Number($json.load_duration) / 1e6 : null, promptEval: Number.isFinite(Number($json.prompt_eval_duration)) ? Number($json.prompt_eval_duration) / 1e6 : null, generation: Number.isFinite(Number($json.eval_duration)) ? Number($json.eval_duration) / 1e6 : null } };\nconst logLine = JSON.stringify({ executionId: $execution.id, timestamp: new Date().toISOString(), step: 'Verifier', model, input: { task: state.task, successCriteria: state.plan.success_criteria || 'Not specified', worker: state.worker, workerOutput: state.workerOutput }, output: { passed: review.passed, feedback }, usage, timingsMs: usage.timingsMs, stepElapsedMs }) + '\\n';\nconst tokenUsage = [...(state.tokenUsage || []), usage];\nreturn [{ json: { ...state, tokenUsage, passed: review.passed, feedback, logLine } }];"
       },
       "id": "67b2e3ec-c918-4bd2-9a65-2a43f83e45ef",
       "name": "Parse Verification",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [2420, 300]
+      "position": [
+        2420,
+        300
+      ]
     },
     {
       "parameters": {
         "conditions": {
-          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict", "version": 2 },
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
           "conditions": [
             {
               "id": "a956c522-ea28-4494-802e-18e3e04867f6",
               "leftValue": "={{ $json.passed }}",
               "rightValue": true,
-              "operator": { "type": "boolean", "operation": "true", "singleValue": true }
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
             }
           ],
           "combinator": "and"
@@ -197,18 +260,29 @@
       "name": "Passed Verification?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
-      "position": [2640, 300]
+      "position": [
+        2640,
+        300
+      ]
     },
     {
       "parameters": {
         "conditions": {
-          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict", "version": 2 },
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
           "conditions": [
             {
               "id": "b5e1dd51-cc9a-43b5-8e5c-df71f2efae21",
               "leftValue": "={{ $json.plan.target_worker }}",
               "rightValue": "coder",
-              "operator": { "type": "string", "operation": "equals" }
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
             }
           ],
           "combinator": "and"
@@ -219,15 +293,23 @@
       "name": "Coding Failure?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
-      "position": [2860, 500]
+      "position": [
+        2860,
+        500
+      ]
     },
     {
-      "parameters": { "jsCode": "return $input.all();" },
+      "parameters": {
+        "jsCode": "return $input.all().map(item => ({ json: { ...item.json, stepStartedAt: Date.now() } }));"
+      },
       "id": "75f0b75f-e305-483b-9218-c0ca85bdac5c",
       "name": "Prepare Debugger Input",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [3080, 420]
+      "position": [
+        3080,
+        420
+      ]
     },
     {
       "parameters": {
@@ -242,17 +324,23 @@
       "name": "Deep Debugger (DeepSeek R1 7B)",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [3300, 420]
+      "position": [
+        3300,
+        420
+      ]
     },
     {
       "parameters": {
-        "jsCode": "const state = $('Prepare Debugger Input').item.json;\nconst tokenUsage = [...(state.tokenUsage || []), { model: 'deepseek-r1:7b', promptTokens: Number($json.prompt_eval_count || 0), generatedTokens: Number($json.eval_count || 0) }];\nreturn [{ json: { ...state, tokenUsage, debuggerAnalysis: String($json.message?.content ?? '') } }];"
+        "jsCode": "const state = $('Prepare Debugger Input').item.json;\nconst stepElapsedMs = Math.max(0, Date.now() - Number(state.stepStartedAt || Date.now()));\nconst model = 'deepseek-r1:7b';\nconst debuggerAnalysis = String($json.message?.content ?? '');\nconst usage = { stepElapsedMs, model, promptTokens: Number($json.prompt_eval_count || 0), generatedTokens: Number($json.eval_count || 0), timingsMs: { total: Number.isFinite(Number($json.total_duration)) ? Number($json.total_duration) / 1e6 : null, load: Number.isFinite(Number($json.load_duration)) ? Number($json.load_duration) / 1e6 : null, promptEval: Number.isFinite(Number($json.prompt_eval_duration)) ? Number($json.prompt_eval_duration) / 1e6 : null, generation: Number.isFinite(Number($json.eval_duration)) ? Number($json.eval_duration) / 1e6 : null } };\nconst logLine = JSON.stringify({ executionId: $execution.id, timestamp: new Date().toISOString(), step: 'Deep Debugger', model, input: { task: state.task, workerOutput: state.workerOutput, verifierFeedback: state.feedback }, output: debuggerAnalysis, usage, timingsMs: usage.timingsMs, stepElapsedMs }) + '\\n';\nconst tokenUsage = [...(state.tokenUsage || []), usage];\nreturn [{ json: { ...state, tokenUsage, debuggerAnalysis, logLine } }];"
       },
       "id": "7c8ad2a3-61c2-4543-8d28-927058de36f7",
       "name": "Pack Debugger Result",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [3520, 420]
+      "position": [
+        3520,
+        420
+      ]
     },
     {
       "parameters": {
@@ -262,18 +350,29 @@
       "name": "Prepare Retry",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [3740, 560]
+      "position": [
+        3740,
+        560
+      ]
     },
     {
       "parameters": {
         "conditions": {
-          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict", "version": 2 },
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
           "conditions": [
             {
               "id": "8cd57435-738b-464f-8a26-8ec6cffc4110",
               "leftValue": "={{ $json.retryCount }}",
               "rightValue": 2,
-              "operator": { "type": "number", "operation": "lte" }
+              "operator": {
+                "type": "number",
+                "operation": "lte"
+              }
             }
           ],
           "combinator": "and"
@@ -284,18 +383,29 @@
       "name": "Retries Remaining?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
-      "position": [3960, 560]
+      "position": [
+        3960,
+        560
+      ]
     },
     {
       "parameters": {
         "conditions": {
-          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict", "version": 2 },
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
           "conditions": [
             {
               "id": "bbd3d20a-9817-4701-9e85-c0d30692b494",
               "leftValue": "={{ $json.plan.target_worker }}",
               "rightValue": "coder",
-              "operator": { "type": "string", "operation": "equals" }
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
             }
           ],
           "combinator": "and"
@@ -306,69 +416,646 @@
       "name": "Retry Coding Task?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
-      "position": [4180, 480]
+      "position": [
+        4180,
+        480
+      ]
     },
     {
       "parameters": {
-        "jsCode": "const d = $input.first().json;\nconst usageByModel = {};\nfor (const call of d.tokenUsage || []) {\n  const model = call.model || 'unknown';\n  if (!usageByModel[model]) usageByModel[model] = { promptTokens: 0, generatedTokens: 0, totalTokens: 0, calls: 0 };\n  const promptTokens = Number(call.promptTokens || 0);\n  const generatedTokens = Number(call.generatedTokens || 0);\n  usageByModel[model].promptTokens += promptTokens;\n  usageByModel[model].generatedTokens += generatedTokens;\n  usageByModel[model].totalTokens += promptTokens + generatedTokens;\n  usageByModel[model].calls += 1;\n}\nconst tokenTotals = Object.values(usageByModel).reduce((totals, model) => ({ promptTokens: totals.promptTokens + model.promptTokens, generatedTokens: totals.generatedTokens + model.generatedTokens, totalTokens: totals.totalTokens + model.totalTokens, modelCalls: totals.modelCalls + model.calls }), { promptTokens: 0, generatedTokens: 0, totalTokens: 0, modelCalls: 0 });\nreturn [{ json: { task: d.task, worker: d.worker || d.plan?.target_worker || 'unknown', passed: d.passed === true, result: d.workerOutput || '', feedback: d.feedback || (d.retryCount > 2 ? 'Maximum of two retries reached.' : ''), debuggerAnalysis: d.debuggerAnalysis || '', retriesUsed: Math.min(Number(d.retryCount || 0), 2), tokenUsageByModel: usageByModel, tokenTotals } }];"
+        "jsCode": "const d = $input.first().json;\nconst usageByModel = {};\nfor (const call of d.tokenUsage || []) {\n  const model = call.model || 'unknown';\n  if (!usageByModel[model]) usageByModel[model] = { promptTokens: 0, generatedTokens: 0, totalTokens: 0, calls: 0, totalDurationMs: 0, totalStepElapsedMs: 0 };\n  const promptTokens = Number(call.promptTokens || 0);\n  const generatedTokens = Number(call.generatedTokens || 0);\n  usageByModel[model].promptTokens += promptTokens;\n  usageByModel[model].generatedTokens += generatedTokens;\n  usageByModel[model].totalTokens += promptTokens + generatedTokens;\n  usageByModel[model].calls += 1;\n  usageByModel[model].totalDurationMs += Number(call.timingsMs?.total || 0);\n  usageByModel[model].totalStepElapsedMs += Number(call.stepElapsedMs || 0);\n}\nconst tokenTotals = Object.values(usageByModel).reduce((totals, model) => ({ promptTokens: totals.promptTokens + model.promptTokens, generatedTokens: totals.generatedTokens + model.generatedTokens, totalTokens: totals.totalTokens + model.totalTokens, modelCalls: totals.modelCalls + model.calls }), { promptTokens: 0, generatedTokens: 0, totalTokens: 0, modelCalls: 0 });\nreturn [{ json: { task: d.task, worker: d.worker || d.plan?.target_worker || 'unknown', passed: d.passed === true, result: d.workerOutput || '', feedback: d.feedback || (d.retryCount > 2 ? 'Maximum of two retries reached.' : ''), debuggerAnalysis: d.debuggerAnalysis || '', retriesUsed: Math.min(Number(d.retryCount || 0), 2), tokenUsageByModel: usageByModel, tokenTotals, interactionLogFile: '.n8n/workflow-interactions.jsonl' } }];"
       },
       "id": "bff6a75b-dcbc-4964-9fb0-65cb2461cab7",
       "name": "Final Result",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [4400, 760]
+      "position": [
+        4400,
+        760
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "toText",
+        "sourceProperty": "logLine",
+        "binaryPropertyName": "data",
+        "options": {
+          "fileName": "workflow-interactions.jsonl",
+          "encoding": "utf8",
+          "addBOM": false
+        }
+      },
+      "id": "format-router-interaction-log",
+      "name": "Format Router Interaction Log",
+      "type": "n8n-nodes-base.convertToFile",
+      "typeVersion": 1.2,
+      "position": [
+        1020,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "write",
+        "fileName": "/logs/workflow-interactions.jsonl",
+        "dataPropertyName": "data",
+        "options": {
+          "append": true
+        }
+      },
+      "id": "append-router-interaction-log",
+      "name": "Append Router Interaction Log",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1.1,
+      "position": [
+        1300,
+        920
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "toText",
+        "sourceProperty": "logLine",
+        "binaryPropertyName": "data",
+        "options": {
+          "fileName": "workflow-interactions.jsonl",
+          "encoding": "utf8",
+          "addBOM": false
+        }
+      },
+      "id": "format-coding-specialist-interaction-log",
+      "name": "Format Coding Specialist Interaction Log",
+      "type": "n8n-nodes-base.convertToFile",
+      "typeVersion": 1.2,
+      "position": [
+        1300,
+        1060
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "write",
+        "fileName": "/logs/workflow-interactions.jsonl",
+        "dataPropertyName": "data",
+        "options": {
+          "append": true
+        }
+      },
+      "id": "append-coding-specialist-interaction-log",
+      "name": "Append Coding Specialist Interaction Log",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1.1,
+      "position": [
+        1300,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "toText",
+        "sourceProperty": "logLine",
+        "binaryPropertyName": "data",
+        "options": {
+          "fileName": "workflow-interactions.jsonl",
+          "encoding": "utf8",
+          "addBOM": false
+        }
+      },
+      "id": "format-general-worker-interaction-log",
+      "name": "Format General Worker Interaction Log",
+      "type": "n8n-nodes-base.convertToFile",
+      "typeVersion": 1.2,
+      "position": [
+        1300,
+        640
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "write",
+        "fileName": "/logs/workflow-interactions.jsonl",
+        "dataPropertyName": "data",
+        "options": {
+          "append": true
+        }
+      },
+      "id": "append-general-worker-interaction-log",
+      "name": "Append General Worker Interaction Log",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1.1,
+      "position": [
+        1300,
+        780
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "toText",
+        "sourceProperty": "logLine",
+        "binaryPropertyName": "data",
+        "options": {
+          "fileName": "workflow-interactions.jsonl",
+          "encoding": "utf8",
+          "addBOM": false
+        }
+      },
+      "id": "format-verifier-interaction-log",
+      "name": "Format Verifier Interaction Log",
+      "type": "n8n-nodes-base.convertToFile",
+      "typeVersion": 1.2,
+      "position": [
+        1300,
+        920
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "write",
+        "fileName": "/logs/workflow-interactions.jsonl",
+        "dataPropertyName": "data",
+        "options": {
+          "append": true
+        }
+      },
+      "id": "append-verifier-interaction-log",
+      "name": "Append Verifier Interaction Log",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1.1,
+      "position": [
+        1300,
+        1060
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "toText",
+        "sourceProperty": "logLine",
+        "binaryPropertyName": "data",
+        "options": {
+          "fileName": "workflow-interactions.jsonl",
+          "encoding": "utf8",
+          "addBOM": false
+        }
+      },
+      "id": "format-deep-debugger-interaction-log",
+      "name": "Format Deep Debugger Interaction Log",
+      "type": "n8n-nodes-base.convertToFile",
+      "typeVersion": 1.2,
+      "position": [
+        1300,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "write",
+        "fileName": "/logs/workflow-interactions.jsonl",
+        "dataPropertyName": "data",
+        "options": {
+          "append": true
+        }
+      },
+      "id": "append-deep-debugger-interaction-log",
+      "name": "Append Deep Debugger Interaction Log",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1.1,
+      "position": [
+        1300,
+        640
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "return $input.all().map(item => ({ json: { ...item.json, stepStartedAt: Date.now() } }));"
+      },
+      "id": "prepare-router-input",
+      "name": "Prepare Router Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        440,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const d = $input.first().json;\nconst escapeHtml = (value) => String(value ?? '').replace(/[&<>\"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '\"': '&quot;', \"'\": '&#39;' })[char]);\nconst formatPlainText = (value) => escapeHtml(value)\n  .replace(/^### (.+)$/gm, '<h3>$1</h3>')\n  .replace(/^## (.+)$/gm, '<h2>$1</h2>')\n  .replace(/^# (.+)$/gm, '<h1>$1</h1>')\n  .replace(/\\*\\*(.+?)\\*\\*/g, '<strong>$1</strong>')\n  .replace(/`([^`]+)`/g, '<code>$1</code>')\n  .replace(/\\n/g, '<br>');\nconst formatMarkdown = (value) => {\n  const markdown = String(value ?? '');\n  const codeBlock = /```([a-zA-Z0-9_+.-]*)\\n?([\\s\\S]*?)```/g;\n  let html = '';\n  let cursor = 0;\n  let match;\n  while ((match = codeBlock.exec(markdown)) !== null) {\n    html += formatPlainText(markdown.slice(cursor, match.index));\n    const language = match[1] ? `<small>${escapeHtml(match[1])}</small>` : '';\n    html += `${language}<pre><code>${escapeHtml(match[2].replace(/\\n$/, ''))}</code></pre>`;\n    cursor = codeBlock.lastIndex;\n  }\n  html += formatPlainText(markdown.slice(cursor));\n  return html || '<em>No response content was returned.</em>';\n};\nconst status = d.passed ? 'Completed successfully' : 'Completed with items to review';\nconst usage = d.tokenUsageByModel || {};\nconst rows = Object.entries(usage).map(([model, stats]) => `<tr><td>${escapeHtml(model)}</td><td>${Number(stats.calls || 0)}</td><td>${Number(stats.promptTokens || 0).toLocaleString()}</td><td>${Number(stats.generatedTokens || 0).toLocaleString()}</td><td>${(Number(stats.totalDurationMs || 0) / 1000).toFixed(1)} s</td><td>${(Number(stats.totalStepElapsedMs || 0) / 1000).toFixed(1)} s</td></tr>`).join('');\nconst feedback = d.feedback ? `<section><h2>Verifier feedback</h2><p>${formatMarkdown(d.feedback)}</p></section>` : '';\nconst debuggerSection = d.debuggerAnalysis ? `<section><h2>Debug notes</h2><div>${formatMarkdown(d.debuggerAnalysis)}</div></section>` : '';\nconst html = `<main><h1>${escapeHtml(status)}</h1><p><strong>Task:</strong> ${escapeHtml(d.task)}</p><p><strong>Worker:</strong> ${escapeHtml(d.worker)} &nbsp; <strong>Retries:</strong> ${Number(d.retriesUsed || 0)}</p><section><h2>Result</h2><div>${formatMarkdown(d.result)}</div></section>${feedback}${debuggerSection}<section><h2>Usage and timing</h2><p>${Number(d.tokenTotals?.modelCalls || 0)} model calls \u00b7 ${Number(d.tokenTotals?.totalTokens || 0).toLocaleString()} tokens (including ${Number(d.tokenTotals?.promptTokens || 0).toLocaleString()} prompt and ${Number(d.tokenTotals?.generatedTokens || 0).toLocaleString()} generated)</p><table><thead><tr><th>Model</th><th>Calls</th><th>Prompt tokens</th><th>Generated tokens</th><th>Ollama time</th><th>Step elapsed</th></tr></thead><tbody>${rows || '<tr><td colspan=\"6\">No model usage data</td></tr>'}</tbody></table></section><p><small>Interaction details are saved to ${escapeHtml(d.interactionLogFile || '.n8n/workflow-interactions.jsonl')}.</small></p></main>`;\nreturn [{ json: { ...d, formattedResultHtml: html } }];"
+      },
+      "id": "build-form-result-page",
+      "name": "Build Form Result Page",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4620,
+        760
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "completion",
+        "respondWith": "showText",
+        "responseText": "={{ $json.formattedResultHtml }}",
+        "options": {
+          "formTitle": "Local AI Task Result",
+          "appendAttribution": false
+        }
+      },
+      "id": "form-completion",
+      "name": "Form Completion",
+      "type": "n8n-nodes-base.form",
+      "typeVersion": 2.5,
+      "position": [
+        4860,
+        760
+      ]
     }
   ],
   "connections": {
-    "Manual Trigger": { "main": [[{ "node": "Task Input", "type": "main", "index": 0 }]] },
-    "Task Input": { "main": [[{ "node": "Router (Qwen3.5 2B)", "type": "main", "index": 0 }]] },
-    "Router (Qwen3.5 2B)": { "main": [[{ "node": "Parse Router Plan", "type": "main", "index": 0 }]] },
-    "Parse Router Plan": { "main": [[{ "node": "Route Coding Task?", "type": "main", "index": 0 }]] },
-    "Route Coding Task?": {
+    "Task Prompt": {
       "main": [
-        [{ "node": "Prepare Coder Input", "type": "main", "index": 0 }],
-        [{ "node": "Prepare General Input", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Prepare Router Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
-    "Prepare Coder Input": { "main": [[{ "node": "Coding Specialist (Qwen2.5-Coder 7B)", "type": "main", "index": 0 }]] },
-    "Coding Specialist (Qwen2.5-Coder 7B)": { "main": [[{ "node": "Pack Coder Result", "type": "main", "index": 0 }]] },
-    "Pack Coder Result": { "main": [[{ "node": "Prepare Verification Input", "type": "main", "index": 0 }]] },
-    "Prepare General Input": { "main": [[{ "node": "General Worker (Qwen3.5 4B)", "type": "main", "index": 0 }]] },
-    "General Worker (Qwen3.5 4B)": { "main": [[{ "node": "Pack General Result", "type": "main", "index": 0 }]] },
-    "Pack General Result": { "main": [[{ "node": "Prepare Verification Input", "type": "main", "index": 0 }]] },
-    "Prepare Verification Input": { "main": [[{ "node": "Verifier (Qwen3.5 4B)", "type": "main", "index": 0 }]] },
-    "Verifier (Qwen3.5 4B)": { "main": [[{ "node": "Parse Verification", "type": "main", "index": 0 }]] },
-    "Parse Verification": { "main": [[{ "node": "Passed Verification?", "type": "main", "index": 0 }]] },
+    "Router (Qwen3.5 2B)": {
+      "main": [
+        [
+          {
+            "node": "Parse Router Plan",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Router Plan": {
+      "main": [
+        [
+          {
+            "node": "Route Coding Task?",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Format Router Interaction Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route Coding Task?": {
+      "main": [
+        [
+          {
+            "node": "Prepare Coder Input",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prepare General Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Coder Input": {
+      "main": [
+        [
+          {
+            "node": "Coding Specialist (Qwen2.5-Coder 7B)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Coding Specialist (Qwen2.5-Coder 7B)": {
+      "main": [
+        [
+          {
+            "node": "Pack Coder Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pack Coder Result": {
+      "main": [
+        [
+          {
+            "node": "Prepare Verification Input",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Format Coding Specialist Interaction Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare General Input": {
+      "main": [
+        [
+          {
+            "node": "General Worker (Qwen3.5 4B)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "General Worker (Qwen3.5 4B)": {
+      "main": [
+        [
+          {
+            "node": "Pack General Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pack General Result": {
+      "main": [
+        [
+          {
+            "node": "Prepare Verification Input",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Format General Worker Interaction Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Verification Input": {
+      "main": [
+        [
+          {
+            "node": "Verifier (Qwen3.5 4B)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verifier (Qwen3.5 4B)": {
+      "main": [
+        [
+          {
+            "node": "Parse Verification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Verification": {
+      "main": [
+        [
+          {
+            "node": "Passed Verification?",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Format Verifier Interaction Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
     "Passed Verification?": {
       "main": [
-        [{ "node": "Final Result", "type": "main", "index": 0 }],
-        [{ "node": "Coding Failure?", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Final Result",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Coding Failure?",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "Coding Failure?": {
       "main": [
-        [{ "node": "Prepare Debugger Input", "type": "main", "index": 0 }],
-        [{ "node": "Prepare Retry", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Prepare Debugger Input",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prepare Retry",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
-    "Prepare Debugger Input": { "main": [[{ "node": "Deep Debugger (DeepSeek R1 7B)", "type": "main", "index": 0 }]] },
-    "Deep Debugger (DeepSeek R1 7B)": { "main": [[{ "node": "Pack Debugger Result", "type": "main", "index": 0 }]] },
-    "Pack Debugger Result": { "main": [[{ "node": "Prepare Retry", "type": "main", "index": 0 }]] },
-    "Prepare Retry": { "main": [[{ "node": "Retries Remaining?", "type": "main", "index": 0 }]] },
+    "Prepare Debugger Input": {
+      "main": [
+        [
+          {
+            "node": "Deep Debugger (DeepSeek R1 7B)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Deep Debugger (DeepSeek R1 7B)": {
+      "main": [
+        [
+          {
+            "node": "Pack Debugger Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pack Debugger Result": {
+      "main": [
+        [
+          {
+            "node": "Prepare Retry",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Format Deep Debugger Interaction Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Retry": {
+      "main": [
+        [
+          {
+            "node": "Retries Remaining?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
     "Retries Remaining?": {
       "main": [
-        [{ "node": "Retry Coding Task?", "type": "main", "index": 0 }],
-        [{ "node": "Final Result", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Retry Coding Task?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Final Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "Retry Coding Task?": {
       "main": [
-        [{ "node": "Prepare Coder Input", "type": "main", "index": 0 }],
-        [{ "node": "Prepare General Input", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Prepare Coder Input",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prepare General Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Router Interaction Log": {
+      "main": [
+        [
+          {
+            "node": "Append Router Interaction Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Coding Specialist Interaction Log": {
+      "main": [
+        [
+          {
+            "node": "Append Coding Specialist Interaction Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format General Worker Interaction Log": {
+      "main": [
+        [
+          {
+            "node": "Append General Worker Interaction Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Verifier Interaction Log": {
+      "main": [
+        [
+          {
+            "node": "Append Verifier Interaction Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Deep Debugger Interaction Log": {
+      "main": [
+        [
+          {
+            "node": "Append Deep Debugger Interaction Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Router Input": {
+      "main": [
+        [
+          {
+            "node": "Router (Qwen3.5 2B)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Final Result": {
+      "main": [
+        [
+          {
+            "node": "Build Form Result Page",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Form Result Page": {
+      "main": [
+        [
+          {
+            "node": "Form Completion",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     }
   },
-  "settings": { "executionOrder": "v1" },
+  "settings": {
+    "executionOrder": "v1"
+  },
   "versionId": "34039f9a-f20a-4c86-b8a6-3869ba58ccad",
-  "meta": { "templateCredsSetupCompleted": true }
+  "meta": {
+    "templateCredsSetupCompleted": true
+  }
 }

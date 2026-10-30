@@ -28,8 +28,34 @@ export OLLAMA_NUM_PARALLEL=1
 
 echo "[+] Checking whether the Ollama server is running..."
 if ollama list >/dev/null 2>&1; then
-    echo "[✓] Ollama server is already running."
-else
+    if [[ "$OS_NAME" == "Darwin" ]]; then
+        echo "[+] Restarting the Ollama app so it uses this script's settings..."
+        if ! osascript -e 'tell application "Ollama" to quit' >/dev/null 2>&1; then
+            echo "[!] Ollama is responding, but the Ollama macOS app could not be quit."
+            echo "[!] Quit Ollama manually, then run this script again so its settings take effect."
+            exit 1
+        fi
+
+        ollama_stopped=false
+        for ((attempt = 1; attempt <= 30; attempt++)); do
+            if ! ollama list >/dev/null 2>&1; then
+                ollama_stopped=true
+                break
+            fi
+            sleep 2
+        done
+
+        if [[ "$ollama_stopped" != true ]]; then
+            echo "[!] The existing Ollama server did not stop within 60 seconds."
+            echo "[!] Quit Ollama manually, then run this script again."
+            exit 1
+        fi
+    else
+        echo "[✓] Ollama server is already running."
+    fi
+fi
+
+if ! ollama list >/dev/null 2>&1; then
     ollama_log_path="${TMPDIR:-/tmp}/ollama-local-team.log"
     echo "[+] Starting Ollama server..."
     nohup ollama serve >"$ollama_log_path" 2>&1 &

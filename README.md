@@ -120,6 +120,7 @@ services:
       - N8N_LOG_FILE_LOCATION=/logs/n8n.log
       - N8N_LOG_FILE_SIZE_MAX=16
       - N8N_LOG_FILE_COUNT_MAX=10
+      - N8N_RESTRICT_FILE_ACCESS_TO=/logs
     volumes:
       - n8n_data:/home/node/.n8n
       - ./.n8n:/logs
@@ -129,7 +130,7 @@ volumes:
   n8n_data:
 ```
 
-The workflow definition is tracked at `workflows/workflow.json` and mounted read-only at `/tmp/workflow.json` inside the container. The start script imports it once. n8n writes logs to `.n8n/n8n.log` on the host, with up to 10 rotated 16 MB files; local `.n8n` data is ignored by Git.
+The workflow definition is tracked at `workflows/workflow.json` and mounted read-only at `/tmp/workflow.json` inside the container. The start script imports it once. n8n writes logs to `.n8n/n8n.log` on the host, with up to 10 rotated 16 MB files. Workflow model interactions are appended as JSONL records to `.n8n/workflow-interactions.jsonl`; each record includes the execution ID, step, model, task context, model response, token counts, and Ollama timing metrics in milliseconds, plus elapsed time measured around each model request. Final results also report the log path and aggregate timing per model. These logs can contain task prompts and model responses. Local `.n8n` data is ignored by Git.
 
 ### `start_local_team.sh`
 
@@ -143,42 +144,21 @@ The unified script supports macOS and Linux. It installs Ollama if needed, check
 * **Ollama API Endpoint:** `http://localhost:11434`
 * **n8n Orchestrator UI:** `http://localhost:5678`
 
-### 2. Setting Up the Orchestrator (n8n)
+### 2. Submit a Task
 
-1. Open `http://localhost:5678` in your browser and complete the one-time account creation.
-2. Create a new Workflow.
-3. Add **HTTP Request Nodes** or official **Ollama Nodes** configured to connect to `http://host.docker.internal:11434` (or `http://localhost:11434`).
-4. Configure node prompts according to their roles:
+1. Start the setup with `./start_local_team.sh` and open the n8n UI at `http://localhost:5678`. If this is your first visit, complete n8n's owner-account setup.
+2. Open **Local Multi-Model Specialist Pipeline** and select the **Task Prompt** form trigger.
+3. Click **Execute step** on the form trigger to start its test listener.
+4. Open the test form at [http://localhost:5678/form-test/local-ai-task](http://localhost:5678/form-test/local-ai-task), enter a task, and select **Run task**. For example: `Create a PHP Hello World script`.
+5. Leave the form page open while the local models work. When the workflow finishes, the page displays the result, verification status, feedback, token counts, and per-model timings. Completed runs that need review also show a result page.
 
-#### Router Node System Prompt (`qwen3.5:2b`)
-```text
-You are a strict task classifier. Analyze the user request and output ONLY a JSON object:
-{
-  "task_type": "coding" | "research" | "data",
-  "language": "python" | "node" | "go" | "php" | "other",
-  "target_worker": "coder" | "researcher" | "general",
-  "files": [],
-  "success_criteria": "string"
-}
-Route coding tasks in any language, including Go and PHP, to "coder".
-Do not solve the problem. Return raw JSON only.
-```
+The test listener accepts one submission at a time. To submit another task, click **Execute step** on **Task Prompt** again and reload the test form. The production form URL (`http://localhost:5678/form/local-ai-task`) is available after activating the workflow in n8n.
 
-#### Verifier Node System Prompt (`qwen3.5:4b`)
-```text
-Evaluate whether the output provided by the worker meets the target success_criteria.
-Return raw JSON only:
-{
-  "passed": true | false,
-  "feedback": "Reason for failure if passed is false"
-}
-```
+Detailed model interactions are saved locally in `.n8n/workflow-interactions.jsonl`; n8n execution details are available from the **Executions** view in the UI.
 
-#### Deep Debugger Node System Prompt (`deepseek-r1:7b`)
-```text
-Analyze the failing code and execution error logs provided.
-Identify the likely root cause of the failure from the code and error logs. Return a concise explanation and actionable instructions for the coding model. Provide conclusions and supporting evidence, not hidden chain-of-thought.
-```
+### 3. Workflow Configuration
+
+The included workflow is imported by `start_local_team.sh`; there is no need to create a second workflow in n8n. For the detailed node setup, routing logic, worker roles, prompts, verification, and retry behavior, use [Workflow-Instructions.md](Workflow-Instructions.md) as the single reference.
 
 ---
 

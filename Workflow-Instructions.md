@@ -11,7 +11,7 @@ The n8n workflow operates as a multi-stage pipeline designed for efficiency, spe
 1. **Trigger** -> Captures incoming user prompt/task.
 2. **Router Node** -> Classifies intent and generates a JSON execution plan.
 3. **Switch Node** -> Directs execution to the specialized worker model.
-4. **Specialist Worker** -> Executes the task using restricted tools or code access.
+4. **Specialist Worker** -> Produces code, analysis, or guidance. Current workers do not have tools, file access, or command execution.
 5. **Verifier Node** -> Evaluates worker output against original success criteria.
 6. **Feedback Loop** -> Loops back on failure (max 2 retries) or outputs final result.
 
@@ -45,6 +45,7 @@ The Router analyzes user intent and generates a structured execution plan withou
     "success_criteria": "string"
   }
   Route coding tasks in any language, including Go and PHP, to "coder".
+  Derive concise criteria from the user request. Do not invent execution, testing, file-writing, installation, server, or deployment requirements unless the user explicitly asks. For simple code generation, criteria should focus on providing the requested code and necessary usage notes.
   Do not solve the problem. Return raw JSON only.
   ```
 
@@ -64,8 +65,8 @@ Add an n8n **Switch** or **If** node directly after the Router to parse the JSON
 ### A. Coding Specialist Path
 * **Model:** `qwen2.5-coder:7b-instruct`
 * **Temperature:** `0.1`
-* **Role:** Inspects codebases, modifies local files, or executes terminal tests.
-* **n8n Integration:** Connect to local command/execute nodes to run tests (e.g., `pytest`) or access local workspace files.
+* **Role:** Produces code, patches, and coding guidance from the task details provided. In the current workflow it cannot inspect or modify files or execute commands/tests.
+* Keep the response proportional to the request. For a simple script request, provide a complete minimal script first; omit installation, hosting, and deployment guidance unless requested. Never claim files were changed or commands/tests were run.
 
 ### B. Research / General Worker Path
 * **Model:** `qwen3.5:4b`
@@ -84,7 +85,7 @@ Once the worker node completes its output, pass both the **original success crit
 * **Node Type:** **Ollama** or **HTTP Request** node.
 * **System Prompt:**
   ```text
-  Evaluate whether the output provided by the worker meets the target success_criteria.
+  Evaluate the output against the original user request and reasonable success criteria. Workers have no tools and cannot execute code. For code-generation requests, judge whether requested code is present and logically correct; do not fail it merely because it was not run unless the user explicitly requested execution/testing and the workflow actually performed it. Do not enforce invented setup, hosting, installation, or deployment requirements. Fail only for a missing deliverable, clear correctness/safety issue, or unmet explicit requirement.
   Return raw JSON only:
   {
     "passed": true | false,
