@@ -58,7 +58,11 @@ fi
 if ! ollama list >/dev/null 2>&1; then
     ollama_log_path="${TMPDIR:-/tmp}/ollama-local-team.log"
     echo "[+] Starting Ollama server..."
-    nohup ollama serve >"$ollama_log_path" 2>&1 &
+    if [[ "$OS_NAME" == "Linux" ]]; then
+        nohup env OLLAMA_HOST=0.0.0.0:11434 ollama serve >"$ollama_log_path" 2>&1 &
+    else
+        nohup ollama serve >"$ollama_log_path" 2>&1 &
+    fi
 
     ollama_ready=false
     for ((attempt = 1; attempt <= 30; attempt++)); do

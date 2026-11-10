@@ -317,7 +317,7 @@
         "url": "http://host.docker.internal:11434/api/chat",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({model:'deepseek-r1:7b',stream:false,options:{temperature:0.6},messages:[{role:'system',content:'Identify the likely root cause from the code and failure details. Return a concise explanation and actionable instructions. Provide conclusions and evidence, not hidden chain-of-thought.'},{role:'user',content:'Task: '+$json.task+'\\nWorker output: '+$json.workerOutput+'\\nVerifier feedback: '+$json.feedback}]}) }}",
+        "jsonBody": "={{ JSON.stringify({model:'deepseek-r1:7b',stream:false,think:false,options:{temperature:0.6,num_predict:256},messages:[{role:'system',content:'Identify the likely root cause from the code and failure details. Return a concise explanation and actionable instructions. Provide conclusions and evidence, not hidden chain-of-thought.'},{role:'user',content:'Task: '+$json.task+'\\nWorker output: '+$json.workerOutput+'\\nVerifier feedback: '+$json.feedback}]}) }}",
         "options": {}
       },
       "id": "2b0bb840-5d02-4b8c-815f-12f4cff6b83d",

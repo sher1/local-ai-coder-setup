@@ -16,6 +16,8 @@ services:
       - n8n_data:/home/node/.n8n
       - ./.n8n:/logs
       - ./workflows/workflow.json:/tmp/workflow.json:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
 volumes:
   n8n_data:
